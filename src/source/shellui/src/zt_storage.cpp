@@ -332,13 +332,14 @@ void set_active(const std::string &name) {
 }
 
 /* the active theme from active_theme.txt; its .ztheme missing (deleted by
-   the user to get out of a crash loop, or never there) -> Default, which
-   write_default_script() makes from the factory theme */
+   the user to get out of a crash loop, or never there) -> Default. With no
+   Default.ztheme either, ZhiThemes stays off (zt_stock_on): the factory
+   theme is never written on its own; Apply in the editor makes the file */
 void load_active() {
   std::string name = trim(read_all(ZT_ACTIVE_FILE));
   if (!zt_theme_name_ok(name) || !exists(zt_theme_file(name))) {
     if (!name.empty())
-      zt_log("storage: theme %s not found; Default is used", name.c_str());
+      zt_log("storage: theme %s not found; Default is used if it exists", name.c_str());
     name = "Default";
   }
   set_active(name);

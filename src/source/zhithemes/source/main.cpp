@@ -26,6 +26,7 @@ later version. See LICENSE and NOTICE.  */
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <net/if.h>
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -218,6 +219,28 @@ bool stock_mode() {
   struct stat st = {};
   if (stat((std::string(kDir) + "/no_theme").c_str(), &st) == 0)
     return true;
+  /* no theme file (first run, or deleted): the module keeps ZhiThemes off
+     too. The name in active_theme.txt, else Default (zt_storage.cpp);
+     theme.ztheme = the old layout, moved by the module */
+  {
+    std::string active;
+    const int fd = open((std::string(kDir) + "/active_theme.txt").c_str(), O_RDONLY);
+    if (fd >= 0) {
+      char nb[64] = {};
+      const ssize_t got = read(fd, nb, sizeof(nb) - 1);
+      close(fd);
+      for (ssize_t i = 0; i < got && nb[i] != '\n' && nb[i] != '\r'; ++i)
+        active += nb[i];
+    }
+    while (!active.empty() && isspace((unsigned char)active.back()))
+      active.pop_back();
+    const bool named = !active.empty() && active.find('/') == std::string::npos && active[0] != '.';
+    const bool has = (named && stat((std::string(kDir) + "/Themes/" + active + ".ztheme").c_str(), &st) == 0) ||
+                     stat((std::string(kDir) + "/Themes/Default.ztheme").c_str(), &st) == 0 ||
+                     stat((std::string(kDir) + "/theme.ztheme").c_str(), &st) == 0;
+    if (!has)
+      return true;
+  }
   for (int i = 0; i < 8; ++i) {
     const std::string b = "/mnt/usb" + std::to_string(i) + "/ZhiThemes/no_theme";
     if (stat(b.c_str(), &st) == 0 || stat((b + ".txt").c_str(), &st) == 0)

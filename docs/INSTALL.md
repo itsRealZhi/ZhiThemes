@@ -14,7 +14,7 @@
 4. In your browser open `http://<that IP>:4444`. The editor loads the current theme.
 5. Change something and press **Apply** (or Ctrl+S). The Home reloads with the change.
 
-The first time, ZhiThemes creates `/data/ZhiThemes/` with the stock theme. Nothing outside that folder is written.
+The first time, ZhiThemes creates `/data/ZhiThemes/` and starts **off** (*PS5 default*): the PS5 looks stock until you press **Apply** in the editor (this creates the theme `Default`) or pick/install a theme. Nothing outside that folder is written.
 
 ## Every boot
 
@@ -35,7 +35,7 @@ Send the new `ZhiThemes.elf`. It asks the running copy to remove its hooks, stop
 
 - **Safe mode:** if ShellUI crashes twice within 3 minutes, ZhiThemes stops loading the theme and shows "Theme off (safe mode)". Send the payload again after fixing the theme.
 - **After a ShellUI restart** ZhiThemes waits 15 s before putting the theme in again (Logs tab → "Injection after a ShellUI restart", 5–120 s). Rest mode does not restart ShellUI: the theme stays in.
-- **A theme that breaks the Home:** delete (or rename) `/data/ZhiThemes/Themes/<Name>.ztheme` (the name is in `active_theme.txt`) over FTP and send the payload again. The stock theme `Default` is used, and a copy of the previous theme is kept in `Themes/.backup/<Name>.ztheme`.
+- **A theme that breaks the Home:** delete (or rename) `/data/ZhiThemes/Themes/<Name>.ztheme` (the name is in `active_theme.txt`) over FTP and send the payload again. `Default` is used if it exists, else ZhiThemes starts off (*PS5 default*); a copy of the previous theme is kept in `Themes/.backup/<Name>.ztheme`.
 - **Report it:** see [LOGS.md](LOGS.md).
 
 ## Files on the PS5 (`/data/ZhiThemes/`)

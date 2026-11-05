@@ -234,26 +234,25 @@ bool write_synced(const char *path, const char *data, size_t len) {
 }
 
 /*
- * The first run gets the default theme as a file the user can edit. Every
- * start keeps a copy of the user's theme (theme.backup.js): the user deletes
- * theme.js to get out of a crash loop, so it is never put back on its own.
+ * Every start keeps a copy of the user's theme (Themes/.backup). No theme
+ * file (first run, or deleted by the user to get out of a crash loop) is
+ * never filled with the factory theme: its values (tile sizes, 9.60 stock
+ * colours) would be applied on firmwares nobody tested. ZhiThemes stays off
+ * (PS5 default, zt_stock_on) until a theme is picked or Apply is pressed.
  */
 void write_default_script() {
   const std::string data = read_file(zt_theme_file().c_str());
-  if (!data.empty()) {
-    /* the factory file written after a delete does not replace the copy */
-    if (data != kThemeDefaultJs) {
-      zt_mkdirs(ZT_THEME_BACKUPS);
-      const std::string backup = std::string(ZT_THEME_BACKUPS "/") + zt_theme_name() + ".ztheme";
-      write_synced(backup.c_str(), data.data(), data.size());
-    }
+  if (data.empty()) {
+    zt_log("js: no theme (%s missing): ZhiThemes off (PS5 default) until a theme is picked",
+           zt_theme_file().c_str());
     return;
   }
-  zt_mkdirs(ZT_THEMES);
-  const size_t len = strlen(kThemeDefaultJs);
-  const bool ok = write_synced(zt_theme_file().c_str(), kThemeDefaultJs, len);
-  zt_log("js: %s default %s", ok ? "wrote" : "FAILED to write",
-                 zt_theme_file().c_str());
+  /* a factory file does not replace the copy */
+  if (data != kThemeDefaultJs) {
+    zt_mkdirs(ZT_THEME_BACKUPS);
+    const std::string backup = std::string(ZT_THEME_BACKUPS "/") + zt_theme_name() + ".ztheme";
+    write_synced(backup.c_str(), data.data(), data.size());
+  }
 }
 
 } // namespace
@@ -2268,10 +2267,14 @@ std::string logo_sizes_js() {
   return out + "}";
 }
 
+/* a theme changed native parts (tokens, focus frame, font, avatar...) in
+   this module: going to PS5 default has to put them back */
+bool g_native_themed = false;
+
 void eval_theme(MonoObject *self, const char *app, unsigned hub_id = 0) {
-  /* ZhiThemes off (PS5 default / USB safe mode): the other apps get
-     nothing; the Home gets the factory theme (every native part at stock)
-     with __ztStock, so theme.js only adds Options menu > ZhiThemes */
+  /* ZhiThemes off (PS5 default / USB safe mode / no theme): the other apps
+     get nothing; the Home gets theme.js with __ztStock, which only adds
+     Options menu > ZhiThemes */
   const bool stock = zt_stock_on();
   if (stock && strcmp(app, "home") != 0) {
     zt_log("js: ZhiThemes off (PS5 default); %s left stock", app);
@@ -2280,11 +2283,15 @@ void eval_theme(MonoObject *self, const char *app, unsigned hub_id = 0) {
   if (stock)
     zt_log("js: ZhiThemes off (PS5 default): Home gets only the Options menu item");
   const std::string script = stock ? std::string(kThemeDefaultJs) : merged_script();
-  if (strcmp(app, "home") == 0) {
+  /* off and nothing changed yet: no native part is touched at all (the
+     factory values are 9.60 ones). Off after a theme: the factory values
+     put back what that theme changed */
+  if (strcmp(app, "home") == 0 && (!stock || g_native_themed)) {
     apply_focus_color(script);
     apply_system_font(script);
     /* avatar, panel tint, icon tint, token log */
     zt_native_apply(script);
+    g_native_themed = !stock;
   }
   if (script.empty()) {
     zt_log("js: %s missing or empty; %s left stock", zt_theme_file().c_str(), app);

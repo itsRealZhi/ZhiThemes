@@ -32,6 +32,7 @@ Alpha: tested on one PS5, firmware **9.60**. Other firmwares are untested; repor
 
 ### Safety
 - Nothing is written to system files: everything runs in memory, and a reboot gives back the stock PS5.
+- With no theme (first start, or the theme file deleted) ZhiThemes starts off and touches nothing, so firmwares that were not tested start with the stock look.
 - A theme file can only carry values (numbers, true/false, text); a file with code is ignored.
 - **Safe mode:** if the Home crashes twice within 3 minutes the theme turns itself off; a USB drive with an empty `ZhiThemes/no_theme` file keeps it off while plugged in.
 - **Logs tab:** debug mode, logs with firmware, version and timestamps, also saved in `/data/ZhiThemes/Logs/`.

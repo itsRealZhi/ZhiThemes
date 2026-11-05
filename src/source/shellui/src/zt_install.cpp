@@ -733,7 +733,9 @@ void *install_thread(void *arg) {
 
 } // namespace
 
-bool zt_stock_on() { return exists(kStockFile) || usb_off(); }
+/* no theme file (first run, or deleted) is off too: the factory theme
+   is never applied on its own */
+bool zt_stock_on() { return exists(kStockFile) || usb_off() || !exists(zt_theme_file()); }
 
 void zt_stock_set(bool on) {
   if (on) {
@@ -746,7 +748,7 @@ void zt_stock_set(bool on) {
 
 std::string zt_theme_menu_json() {
   std::string out = "{\"off\":";
-  out += exists(kStockFile) ? "true" : "false";
+  out += exists(kStockFile) || !exists(zt_theme_file()) ? "true" : "false";
   out += ",\"usbOff\":";
   out += usb_off() ? "true" : "false";
   out += ",\"installing\":";
