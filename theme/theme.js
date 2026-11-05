@@ -2736,7 +2736,12 @@
     if (!which) return;
     var before = f.downCandidate;
     /* downCandidate = id of the selected tile (NPXS40071 = Game Library) */
-    if (typeof before === 'string' && before) T.selectedId = before;
+    if (typeof before === 'string' && before) {
+      if (T.selectedId && T.selectedId !== before && T.tabSel === T.lastProbeTab)
+        lagProbe('game change ' + T.selectedId + ' -> ' + before, 'gameLagLogs');
+      T.lastProbeTab = T.tabSel;
+      T.selectedId = before;
+    }
     /* down to a game that went into a folder: to the folder */
     var inFolder = THEME.folders && folderOfGame(before);
     if (inFolder) {
@@ -4214,7 +4219,24 @@
     T.tabSel = sid;
     T.space = sid;
     if (old) try { spaceMoved(old, sid); } catch (e) { log('tab animation: ' + e); }
+    if (old) lagProbe('tab change ' + old + ' -> ' + sid, 'tabLagLogs');
     favEmptyUpdate();
+  }
+  /* how busy the JS thread is for 1 s after a tab or game change: a 16 ms
+     timer again and again, the longest wait between two is the worst stall
+     (first 8 of each only) */
+  function lagProbe(what, counter) {
+    if ((T[counter] = (T[counter] || 0) + 1) > 8) return;
+    var t0 = Date.now(), last = t0, worst = 0, late = 0;
+    var step = function () {
+      var now = Date.now(), gap = now - last;
+      last = now;
+      if (gap > worst) worst = gap;
+      if (gap > 50) late += gap;
+      if (now - t0 < 1000) setTimeout(step, 16);
+      else log(what + ': JS thread worst stall ' + worst + ' ms, ' + late + ' ms in stalls > 50 ms');
+    };
+    setTimeout(step, 16);
   }
   function tabPill(props) {
     var React = T.React, rn = T.rn;
@@ -4305,9 +4327,125 @@
     /* behind the tabs, in front of the tabs group background */
     var at = 0;
     while (at < kids.length && kids[at] && (kids[at].key || (kids[at].props && kids[at].props.key)) === 'zt-group-bg') at++;
-    kids.splice(at, 0, React.createElement(TabWorm, { key: 'zt-worm' }));
+    /* with a border line the old one (JS driver), else the native one */
+    var Worm = THEME.tabsPillBorderWidth > 0 ? TabWorm : TabWormNative;
+    kids.splice(at, 0, React.createElement(Worm, { key: 'zt-worm' }));
     props.children = kids;
     if (!T.done['tabs worm']) done('tabs worm');
+  }
+  /* The worm on the native driver: left / width are layout (JS driver,
+     every frame on the JS thread, which is busy mounting the new tab's row
+     right then: the panel jerked). Here it is three pieces moved only by
+     transforms: a left cap and a right cap (half of a rounded box each,
+     translateX) and a plain middle box 100 px wide (translateX + scaleX; it
+     scales from its centre). One Animated.Value 0 -> 1 per move; where each
+     edge is at each moment (lead edge first, the other after, eased) is
+     worked out here as points of an interpolation. */
+  var WORM_POINTS = 16;
+  function wormEdges(m, t) {
+    var right = m.to[0] > m.from[0];
+    var lead = easeOut(Math.max(0, Math.min(1, t / 0.65)));
+    var trail = easeOut(Math.max(0, Math.min(1, (t - 0.35) / 0.65)));
+    var kl = right ? trail : lead, kr = right ? lead : trail;
+    return [m.from[0] + (m.to[0] - m.from[0]) * kl, m.from[1] + (m.to[1] - m.from[1]) * kr];
+  }
+  function TabWormNative() {
+    var React = T.React, rn = T.rn, A = rn.Animated;
+    var tick = React.useState(0)[1];
+    var r = React.useRef(null);
+    if (!r.current) {
+      /* the bar may mount again in the middle of a move: it goes on from
+         where the panel was, in the time left */
+      var was = T.wormWas, wm = was && was.move, left = wm ? wm.ms - (Date.now() - wm.t0) : 0;
+      var resume = left > 30;
+      r.current = { p: new A.Value(1), sel: resume ? '\u0000resume' : was ? was.sel : '',
+                    at: resume ? wormEdges(wm, 1 - left / wm.ms) : was ? was.at : null, move: null, run: null,
+                    seg: null, segKey: '', start: false, resumeMs: resume ? left : 0 };
+    }
+    var v = r.current;
+    React.useEffect(function () {
+      var f = function () { tick(function (n) { return n + 1; }); };
+      wormListeners.push(f);
+      return function () {
+        var i = wormListeners.indexOf(f);
+        if (i >= 0) wormListeners.splice(i, 1);
+        if (v.run) try { v.run.stop(); } catch (e) {}
+      };
+    }, []);
+    /* every hook before any return null: a render with more hooks than the
+       one before is a React error, and the whole Home went (only the
+       wallpaper stayed) */
+    var sel = T.wormSel, lay = sel && T.wormLayouts && T.wormLayouts[sel];
+    var to = lay ? [lay.x, lay.x + lay.w] : null;
+    var ms = THEME.animTabsMs > 0 ? THEME.animTabsMs : 280;
+    /* where the panel is now (a move cut short goes on from there) */
+    var now = function () {
+      var m = v.move;
+      if (!m) return v.at;
+      var t = (Date.now() - m.t0) / m.ms;
+      return t >= 1 ? m.to : wormEdges(m, Math.max(0, t));
+    };
+    var key = to ? sel + '|' + to[0] + '|' + to[1] : v.segKey;
+    if (to && v.segKey !== key) {
+      var moving = v.sel && v.at && v.sel !== sel;
+      var m = moving ? { from: now(), to: to, t0: Date.now(), ms: v.resumeMs || ms } : null;
+      v.resumeMs = 0;
+      var ins = [], ls = [], rs = [];
+      for (var i = 0; i <= WORM_POINTS; i++) {
+        var t = i / WORM_POINTS, e = m ? wormEdges(m, t) : to;
+        ins.push(t); ls.push(e[0]); rs.push(e[1]);
+      }
+      v.seg = { ins: ins, ls: ls, rs: rs };
+      v.move = m;
+      v.start = !!m;
+      if (m && (T.wormLogs = (T.wormLogs || 0) + 1) <= 6)
+        log('tabs worm ' + (v.sel.charAt(0) === '\u0000' ? '(mid-move)' : v.sel) + ' -> ' + sel + (to[0] > m.from[0] ? ' (right)' : ' (left)') + ', native');
+      v.segKey = key;
+      v.sel = sel;
+      v.at = to;
+      T.wormWas = { sel: sel, at: to, move: m };
+    }
+    React.useEffect(function () {
+      /* after the new interpolations are on screen */
+      if (!v.start) return;
+      v.start = false;
+      if (v.run) try { v.run.stop(); } catch (e) {}
+      v.p.setValue(0);
+      if (v.move) v.move.t0 = Date.now();
+      try {
+        v.run = A.timing(v.p, { toValue: 1, duration: v.move ? v.move.ms : ms, easing: function (t) { return t; },
+                                useNativeDriver: true, isInteraction: false });
+        v.run.start();
+      } catch (e) { v.p.setValue(1); log('tabs worm: ' + e); }
+    }, [v.segKey]);
+    if (!lay || !v.seg) return null;
+    var s = v.seg, h = lay.h;
+    var R = Math.max(0, Math.min(Number(THEME.tabsPillCorners) || 0, h / 2));
+    var op = THEME.tabsPillOpacity == null ? 0.18 : THEME.tabsPillOpacity;
+    /* a full panel: the pieces overlap half a pixel (no seam); see-through:
+       end to end */
+    var ov = op >= 1 ? 0.5 : 0;
+    var colour = THEME.tabsPillColor || '#ffffff';
+    var mid = s.ins.map(function (t, i) { return { c: (s.ls[i] + s.rs[i]) / 2, w: Math.max(0.01, s.rs[i] - s.ls[i] - 2 * R + 2 * ov) }; });
+    var it = function (out) { return v.p.interpolate({ inputRange: s.ins, outputRange: out }); };
+    var kids = [React.createElement(A.View, { key: 'mid', style: {
+      position: 'absolute', left: 0, top: lay.y, width: 100, height: h, backgroundColor: colour, opacity: op,
+      transform: [{ translateX: it(mid.map(function (q) { return q.c - 50; })) },
+                  { scaleX: it(mid.map(function (q) { return q.w / 100; })) }] } })];
+    if (R > 0) {
+      var cap = function (k, xs, inner) {
+        return React.createElement(A.View, { key: k, style: {
+          position: 'absolute', left: 0, top: lay.y, width: R, height: h, overflow: 'hidden',
+          transform: [{ translateX: it(xs) }] } },
+          React.createElement(rn.View, { style: { position: 'absolute', left: inner, top: 0, width: 2 * R, height: h,
+                                                  borderRadius: R, backgroundColor: colour, opacity: op } }));
+      };
+      kids.push(cap('l', s.ls, 0));
+      kids.push(cap('r', s.rs.map(function (x) { return x - R; }), -R));
+    }
+    if (!T.done['tabs worm native']) done('tabs worm native');
+    return React.createElement(rn.View, { pointerEvents: 'none', focusable: false,
+      style: { position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 } }, kids);
   }
   function TabWorm() {
     var React = T.React, rn = T.rn, A = rn.Animated;
@@ -7423,10 +7561,12 @@
         anims.forEach(function (a) { try { a.stop(); } catch (e) {} });
       };
     }, []);
+    /* built once: a new render made new interpolations for every particle */
+    if (ref.el) return ref.el;
     var colour = THEME.particlesColor || '#ffffff';
     var peak = Math.max(0, Math.min(1, THEME.particlesOpacity == null ? 0.7 : +THEME.particlesOpacity));
     var img = particleUri();
-    return React.createElement(rn.View, {
+    return ref.el = React.createElement(rn.View, {
       pointerEvents: 'none', style: { position: 'absolute', left: 0, top: 0, width: 1920, height: 1080 }
     }, ref.current.map(function (p, i) {
       var st = {
@@ -7611,9 +7751,39 @@
     p.oy.setValue(p.L.a === 1 || p.L.a === 2 ? 0 : s[1] - p.size / 2 - p.y);
     if (p.slowTw) p.ow.setValue(1 - p.slowTw * (0.5 + 0.5 * Math.sin(2 * Math.PI * rnd())));
   }
+  /* what the particles are made from: the same while the theme is the same */
+  function particleSig() {
+    return [THEME.particlesStyle, THEME.particlesCount, THEME.particlesSize, THEME.particlesSpeed, THEME.particlesScale,
+            THEME.particlesHue, THEME.particlesColor, THEME.particlesOpacity, THEME.particlesImage, THEME.animationSpeed].join('|');
+  }
+  /* where a particle is in its life now (0..1), from when its timing started */
+  function particleAt(p) {
+    if (!(p.t0 > 0)) return p.first || 0;
+    return (p.from || 0) + (Date.now() - p.t0) / Math.max(1, p.ms);
+  }
+  /* The particles are made once per theme (kept in T) and their elements
+     built once: the Home root renders again on a tab change (and mounts its
+     layers again), and each render made a new interpolation per particle
+     and property (~200 native animated nodes torn down and made again).
+     A new mount goes on from where each particle was. */
   function StyledParticles() {
     var React = T.React, rn = T.rn, A = rn.Animated;
     var ref = React.useRef(null);
+    var sig = particleSig();
+    if (!ref.current && T.partStyled && T.partStyled.sig === sig) {
+      /* a new mount keeps each particle's path and place, but with new
+         Animated.Values: the old ones' native nodes went with the old
+         views (reused, the particles stood still) */
+      var old = T.partStyled;
+      var num = function (a, d) { try { var n = a.__getValue(); return typeof n === 'number' ? n : d; } catch (e) { return d; } };
+      ref.current = T.partStyled = { sig: sig, rnd: old.rnd, el: null, mounts: old.mounts, list: old.list.map(function (p) {
+        var q = {};
+        for (var k in p) q[k] = p[k];
+        q.v = new A.Value(0); q.ox = new A.Value(num(p.ox, 0)); q.oy = new A.Value(num(p.oy, 0)); q.ow = new A.Value(num(p.ow, 1));
+        q.anim = null;
+        return q;
+      }) };
+    }
     if (!ref.current) {
       var layers = particleStyle() || [];
       var count = Math.max(1, Math.min(120, Math.round(+THEME.particlesCount || 40)));
@@ -7640,13 +7810,15 @@
         p.first = rnd(); /* already this far along its first life: the screen starts full */
         list.push(p);
       }
-      ref.current = { list: list, rnd: rnd };
+      ref.current = T.partStyled = { sig: sig, list: list, rnd: rnd, el: null, mounts: 0 };
     }
     React.useEffect(function () {
       var alive = true, st = ref.current;
       var run = function (p, from) {
         if (!alive) return;
         p.v.setValue(from);
+        p.from = from;
+        p.t0 = Date.now();
         p.anim = A.timing(p.v, { toValue: 1, duration: p.ms * (1 - from), easing: function (t) { return t; },
                                  useNativeDriver: true, isInteraction: false });
         p.anim.start(function (r) {
@@ -7655,15 +7827,21 @@
           run(p, 0);
         });
       };
-      st.list.forEach(function (p) { run(p, p.first); });
+      st.list.forEach(function (p) {
+        var at = particleAt(p);
+        if (at >= 1) { particleMove(p, st.rnd); at = 0; }
+        run(p, Math.max(0, Math.min(0.999, at)));
+      });
+      if (++st.mounts === 2) log('particles: mounted again, they go on where they were');
       if (!T.done.particlesStyle) done('particles style ' + THEME.particlesStyle + ' (' + st.list.length + ')');
       return function () {
         alive = false;
         st.list.forEach(function (p) { try { if (p.anim) p.anim.stop(); } catch (e) {} });
       };
     }, []);
+    if (ref.current.el) return ref.current.el;
     var dir = 'file://' + ZT_ASSETS + 'particles/';
-    return React.createElement(rn.View, {
+    return ref.current.el = React.createElement(rn.View, {
       pointerEvents: 'none', style: { position: 'absolute', left: 0, top: 0, width: 1920, height: 1080, overflow: 'hidden' }
     }, ref.current.list.map(function (p, i) {
       var tf = [
