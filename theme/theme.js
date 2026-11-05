@@ -3994,17 +3994,37 @@
   /* Favourites first: only the bar draws it on the left of Games. The
      Home's spaceIds keeps Games first (with zt_fav first, O no longer got
      out of the Game/App Library); T.spaceOrder is the order on screen */
+  /* the space id of a child of the tabs layer ('game', 'media', 'zt_fav'...) */
+  function tabIdOf(k) {
+    if (!k || !k.props) return '';
+    if (typeof k.props.name === 'string' && k.props.name.indexOf('space-switcher-') === 0) return k.props.name.slice(15);
+    if (typeof k.props.spaceId === 'string') return k.props.spaceId;
+    return typeof k.key === 'string' ? k.key : '';
+  }
+  /* tabs group: the first and last tab on screen (T.tabEnds, from the
+     tabs layer) lose their outer margins in their own pass. A cloned
+     style on the layer's children did not reach the tab Views (they are
+     drawn later, inside other components): the pill's marginLeft
+     -tabsPillPadX put the first pill over L1 and the stock marginRight
+     (tabsSpacing) of the last tab pushed R1 away */
+  function tabEnds(props) {
+    var e = T.tabEnds;
+    if (!THEME.tabsGroup || !e || typeof props.name !== 'string' ||
+        props.name.indexOf('space-switcher-') !== 0 || props.focusable !== true)
+      return;
+    var sid = props.name.slice(15), st = {};
+    if (sid === e.first) st.marginLeft = 0;
+    if (sid === e.last) st.marginRight = 0;
+    if (st.marginLeft == null && st.marginRight == null) return;
+    props.style = [props.style, st];
+    if (!T.done['tabs group ends']) done('tabs group ends ' + e.first + ' / ' + e.last);
+  }
   function tabsOrder(props) {
     if (APP !== 'home' || props.name !== 'space-switcher' || !THEME.tabFavOn || THEME.tabFavFirst === false) return;
     var kids = props.children;
     var flat = Array.isArray(kids) ? (kids.length === 1 && Array.isArray(kids[0]) ? kids[0] : kids) : null;
     if (!flat) return;
-    var idOf = function (k) {
-      if (!k || !k.props) return '';
-      if (typeof k.props.name === 'string' && k.props.name.indexOf('space-switcher-') === 0) return k.props.name.slice(15);
-      if (typeof k.props.spaceId === 'string') return k.props.spaceId;
-      return typeof k.key === 'string' ? k.key : '';
-    };
+    var idOf = tabIdOf;
     var fi = -1, gi = -1;
     for (var i = 0; i < flat.length; i++) {
       var id = idOf(flat[i]);
@@ -6488,10 +6508,29 @@
         return;
       }
     }
+    /* the tabs can come as one array inside the children (as tabsOrder sees them) */
+    if (kids.length === 1 && Array.isArray(kids[0])) kids = kids[0].slice();
     var last = kids.length - 1;
-    while (last >= 0 && !(kids[last] && kids[last].props)) last--;
+    var notTab = function (k) { return !(k && k.props) || /^zt-/.test(tabIdOf(k)); };
+    while (last >= 0 && notTab(kids[last])) last--;
     if (last >= 0 && React.cloneElement)
       kids[last] = React.cloneElement(kids[last], { style: [kids[last].props.style, { marginRight: 0 }] });
+    /* the pill gives each tab marginLeft -tabsPillPadX (so the names stay
+       where the stock ones were): on the first tab that pulled its pill
+       over the left icon, while the right icon kept the whole gap. The
+       first tab starts at 0 so both icons sit tabsGroupIconGap from the pill */
+    var first = 0;
+    while (first < kids.length && notTab(kids[first])) first++;
+    if (first < kids.length && React.cloneElement)
+      kids[first] = React.cloneElement(kids[first], { style: [kids[first].props.style, { marginLeft: 0 }] });
+    /* the clones above do not reach the tab Views: tabEnds does it there */
+    if (first <= last) {
+      var ends = { first: tabIdOf(kids[first]), last: tabIdOf(kids[last]) };
+      if (!T.tabEnds || T.tabEnds.first !== ends.first || T.tabEnds.last !== ends.last) {
+        T.tabEnds = ends;
+        log('tabs group ends: ' + ends.first + ' / ' + ends.last);
+      }
+    }
     var size = THEME.tabsGroupIconSize || 40, gap = THEME.tabsGroupIconGap || 0;
     var op = THEME.tabsGroupIconOpacity == null ? 1 : THEME.tabsGroupIconOpacity;
     function side(v, key, st) {
@@ -8976,6 +9015,7 @@
         tabItem(props);
         tabSeen(props);
         tabPill(props);
+        tabEnds(props);
         tabWorm(props);
         if (THEME.menuMove || THEME.menuNoDim) optionsMenu(props);
         strandProbe(props);
