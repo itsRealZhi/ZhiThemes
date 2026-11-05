@@ -9,6 +9,7 @@ ZhiThemes changes how the PS5 Home looks: tile size and shape (square or vertica
 ## What you need
 
 - A PS5 with a working jailbreak that runs ELF payloads (kstuff and an ELF loader such as elfldr).
+- **Not together with other HENs, for now:** ZhiThemes does not run while etaHEN, OnionHEN or AniketosHEN (or Yoncore, kylin-core, wmdw-jwm, CheatRunner) is loaded: they also load into the Home, and two of them crash it. ZhiThemes then does not load and shows a notification. Use kstuff + an ELF loader only.
 - A PC or phone on the same network as the PS5, with a web browser.
 - Optional: FTP access to the PS5, to copy files or read the logs without the editor.
 

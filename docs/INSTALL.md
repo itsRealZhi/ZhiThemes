@@ -3,6 +3,7 @@
 ## Requirements
 
 - A PS5 with a jailbreak that runs ELF payloads: kstuff loaded and an ELF loader listening (for example elfldr on port 9021). ZhiThemes does not include an exploit.
+- **Not together with other HENs, for now:** ZhiThemes does not run while etaHEN, OnionHEN or AniketosHEN (or Yoncore, kylin-core, wmdw-jwm, CheatRunner) is loaded: they also load into the Home, and two of them crash it. ZhiThemes then does not load and shows a notification. Use kstuff + an ELF loader only.
 - Firmware: tested on **9.60**. Other firmwares may work partly or not at all; see [LOGS.md](LOGS.md) to help test them.
 - A PC or phone on the same network, with a modern browser (Chrome, Edge, Firefox, Safari).
 

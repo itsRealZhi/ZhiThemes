@@ -43,4 +43,5 @@ Alpha: made on firmware **9.60**; also seen working on **13.60** by a tester. Ot
 ### Known limits
 - Made on firmware 9.60; on 13.60 the first load can crash the Home once (error CE-108262-9); it restarts by itself and ZhiThemes loads fine the second time.
 - Loading ZhiThemes many times without restarting the console can use up the Home's memory; from the 4th load in a row the welcome message asks you to restart the PS5.
+- Does not run together with etaHEN, OnionHEN, AniketosHEN or other HENs that load into the Home, for now (use kstuff + an ELF loader).
 - No live blur behind panels; the text colour of Settings rows cannot be changed.
