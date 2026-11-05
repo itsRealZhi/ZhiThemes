@@ -21,6 +21,7 @@
     hubOffset: 0,            /* hub/library page position: − = lower (down to the bottom of the screen), + = higher (0) */
     hideRowInLibrary: true,  /* hide the row (tiles + name) at the top while the Game/App Library is open; always on with vertical tiles (false) */
     libraryPeekDown: 0,      /* px the Game/Apps Library page goes down while only its tile is selected; 0 = off (0) */
+    libraryHideGames: true,  /* keep the Game/App Library page (its games) out of sight until it is opened (false) */
     rowSpeed: 1,             /* row slide speed: 1 normal, 0.5 slower, 2 faster (1) */
     rowBounce: false,        /* the row bounces at the end of the slide (false) */
     rowBounceStrength: 0.65, /* bounce strength, 0 to 1 (0.65) */
@@ -33,6 +34,8 @@
     rowTileGap: 8,           /* space between the tiles of the row, px; the PS5 uses 8 (8) */
     animationSpeed: 1,       /* speed of the other Home animations: 1 normal, 0.5 slow, 2 fast (1) */
     /* --- tabs --- */
+    tabsAlign: '',           /* tabs (with the group icons) aligned inside a box from 84 + tabsX, tabsWidth wide: 'left', 'center' (grows to both sides), 'right'; empty = stock ('') */
+    tabsWidth: 1752,         /* width of that box; 1752 with tabsX 0 = the whole bar, so 'center' is the middle of the screen (1752) */
     tabsX: 0,                /* move horizontally, + = right (0) */
     tabsY: 0,                /* move vertically, + = down (0) */
     tabsSpacing: 64,         /* space between the tabs (64) */
@@ -604,11 +607,15 @@
      stick with ZhiThemes/no_theme): only the Home runs this file, with the
      factory values, and only adds Options menu > ZhiThemes (afterModule) */
   var STOCK = APP === 'home' && !!globalThis.__ztStock;
-  if (STOCK) {
+  /* no theme features: ZhiThemes off, or the diagnostic build with no theme
+     (that one runs the factory theme only for its screen map, debug panel
+     and dump: the Options menu keeps only the ZhiThemes item) */
+  var PLAIN = STOCK || !!globalThis.__ztDiagPlain;
+  if (PLAIN) {
     THEME.fakeTrophies = false;
     THEME.folders = '';
     THEME.animToast = false;
-    THEME.debugOverlay = false;
+    if (!globalThis.__ztDiag) THEME.debugOverlay = false;
     THEME.tabFavOn = false;
   }
 
@@ -2350,14 +2357,23 @@
       if (tileRatio() !== 1 && s.experienceTitleContainer.top === THEME.tileSize)
         s.experienceTitleContainer.top += focusHeight() - THEME.focusSize;
       /* the focused shape's extra width moves it too (a View at a fixed
-         place, right of the stock focused tile, TITLE_X). On the PS5 this
-         translateX counts twice: an older version (+shapeExtra) went past the tile by
-         shapeExtra, an older version (0) stayed short by shapeExtra -> half (moved the focused tile itself: wrong, undone) */
-      shift(s.experienceTitleContainer, (THEME.tileNameX || 0) + Math.round(shapeExtra() / 2), THEME.tileNameY);
+         place, right of the stock focused tile, TITLE_X).
+         The row's title component (module ~193400) makes a second sheet from
+         a copy of this one (same experienceTitleContainer object) each time
+         its maxItems changes, i.e. at load and at every tab change: a plain
+         shift() was added again each time (the "counts twice" seen before,
+         and the name walking right at each tab change). So the transform
+         is always rebuilt from the stock one. */
+      var c = s.experienceTitleContainer;
+      T.titleBase = T.titleBase || new WeakMap();
+      if (!T.titleBase.has(c))
+        T.titleBase.set(c, Array.isArray(c.transform) ? c.transform.slice() : null);
+      var cb = T.titleBase.get(c);
+      if (cb) c.transform = cb.slice(); else delete c.transform;
+      shift(c, (THEME.tileNameX || 0) + shapeExtra(), THEME.tileNameY);
       if (THEME.tileNameScale > 0 && THEME.tileNameScale !== 1) {
         /* scales from the left; if the PS5 RN does not know transformOrigin,
            it scales from the centre (fix it with X/Y) */
-        var c = s.experienceTitleContainer;
         c.transform = (c.transform || []).concat([{ scale: THEME.tileNameScale }]);
         if (!c.transformOrigin) c.transformOrigin = 'left';
       }
@@ -2424,7 +2440,18 @@
     if (s.spaceSwitcherWrapper && s.systemWrapper) {
       var tabs = s.spaceSwitcherWrapper, sys = s.systemWrapper;
       T.root = s.container; /* Home container: the footer goes in here */
-      if (typeof tabs.marginLeft === 'number') tabs.marginLeft += THEME.tabsX;
+      if (tabsAlignPart() >= 0) {
+        /* tabsAlign (like the footer): a box tabsWidth wide from 84 +
+           tabsX, out of the row (the icons on the right keep their room),
+           the tabs aligned inside it (tabsAlignLayer) */
+        tabs.position = 'absolute';
+        tabs.top = 0;
+        tabs.left = 84 + (THEME.tabsX || 0);
+        tabs.width = THEME.tabsWidth > 0 ? THEME.tabsWidth : 1752;
+        tabs.marginLeft = 0;
+        tabs.alignItems = { 0: 'flex-start', 0.5: 'center', 1: 'flex-end' }[tabsAlignPart()];
+        done('tabs box ' + tabs.left + ' +' + tabs.width + ' ' + THEME.tabsAlign);
+      } else if (typeof tabs.marginLeft === 'number') tabs.marginLeft += THEME.tabsX;
       shiftFocusable(tabs, 0, THEME.tabsY);
       hide(tabs, THEME.hideTabs);
       if (typeof sys.marginRight === 'number') sys.marginRight -= THEME.iconsX;
@@ -2658,7 +2685,10 @@
      84 + tabsX): the tabs layer has canMoveLeft false and the icon stayed in
      'home-system', on the right; it gets its own layer too */
   function leftOfTabs(pre) {
-    return !offBar(pre) && iconScreen(pre)[0] + 52 < 84 + (THEME.tabsX || 0);
+    /* centred tabs: their left edge depends on the names; ~300 px left of the centre */
+    var part = tabsAlignPart(), start = 84 + (THEME.tabsX || 0);
+    if (part > 0) start += ((THEME.tabsWidth > 0 ? THEME.tabsWidth : 1752) - 600) * part;
+    return !offBar(pre) && iconScreen(pre)[0] + 52 < start;
   }
   function outOfBar(pre) {
     return !!detached()[pre] || (THEME.iconsNav !== false && (offBar(pre) || leftOfTabs(pre)));
@@ -2749,15 +2779,58 @@
     });
     return left;
   }
+  /* Favourites first is only drawn (tabsOrder): the PS5 still moves
+     left / right between the tabs in the Home's order (Games, Media, ...,
+     Favourites), so Games jumped to the icon on the left and Favourites
+     skipped Games. Then left / right go to the next tab on screen by its ref
+     (T.tabRefs), and the first tab on screen is the one that leads to the
+     icon on the left. */
+  T.tabRefs = {};
+  var tabRefFns = {}, tabRightKeys = {};
+  function tabsReordered() {
+    var on = spaceOrder(), home = Array.isArray(T.spaceIds) ? T.spaceIds : on;
+    return on.join(',') !== home.join(',');
+  }
+  function tabStep(name, step, e) {
+    var ids = spaceOrder(), at = ids.indexOf(name.slice('space-switcher-'.length));
+    var next = at >= 0 ? ids[at + step] : null;
+    var ref = next && T.tabRefs[next];
+    if (!ref || typeof ref.focus !== 'function') return null;
+    take(e);
+    if (pressed(e)) {
+      try { ref.focus(); } catch (x) { log('tabs: focus ' + next + ': ' + x); }
+      if ((T.tabStepLogs = (T.tabStepLogs || 0) + 1) <= 6) log('tabs: ' + (step > 0 ? 'right' : 'left') + ' ' + name.slice(15) + ' -> ' + next);
+    }
+    return false;
+  }
   function tabItem(props) {
-    if (!THEME.iconsNav || typeof props.name !== 'string' || props.name.indexOf('space-switcher-') !== 0 ||
+    if (typeof props.name !== 'string' || props.name.indexOf('space-switcher-') !== 0 ||
         props.focusable !== true)
       return;
-    if (!T.firstTab) T.firstTab = props.name; /* the spaces are drawn left to right */
-    var name = props.name;
+    var name = props.name, sid = name.slice('space-switcher-'.length);
+    var own = tabsReordered();
+    if (!THEME.iconsNav && !own) return;
+    if (own) {
+      var orig = props.ref;
+      props.ref = tabRefFns[sid] = tabRefFns[sid] || function (inst) {
+        if (inst) T.tabRefs[sid] = inst; else if (T.tabRefs[sid]) delete T.tabRefs[sid];
+        if (inst && !T.done['tab ref ' + sid]) done('tab ref ' + sid + ' (focus ' + typeof inst.focus + ')');
+        if (typeof orig === 'function') orig(inst); else if (orig && typeof orig === 'object') orig.current = inst;
+      };
+      props.onRightKeyDown = tabRightKeys[name] = tabRightKeys[name] || function (e) {
+        var r = tabStep(name, 1, e);
+        return r === null ? true : r;
+      };
+    }
     props.onLeftKeyDown = tabKeys[name] = tabKeys[name] || function (e) {
       keyLog('tab ' + name + ' left', e);
-      var left = name === T.firstTab ? leftIconOfTabs() : null;
+      if (tabsReordered()) {
+        var r = tabStep(name, -1, e);
+        if (r !== null) return r;
+      }
+      /* the first tab on screen leads to the icon on the left of the tabs */
+      var first = 'space-switcher-' + spaceOrder()[0];
+      var left = THEME.iconsNav && name === first ? leftIconOfTabs() : null;
       if (!left || !T.iconRefs || !T.iconRefs[left]) return true;
       take(e);
       if (pressed(e)) focusIcon(left);
@@ -3043,6 +3116,8 @@
       if (above) props.onUpKeyDown = rowKey('up', typeof props.onUpKeyDown === 'function' ? props.onUpKeyDown : null);
       if ((below || above) && !T.done['row keys']) done('row keys');
     }
+    /* an empty Favourites tab: down stays on the (hidden) row */
+    if (THEME.tabFavOn) props.onDownKeyDown = favEmptyDown(props.onDownKeyDown);
   }
 
   function moveIcons(o) {
@@ -3444,10 +3519,9 @@
     T.allTitlesAsked = true;
     T.titlesAcc = acc;
     T.titlesGet = getItems;
-    /* the order: the one that worked last, else the Home's, else ours; each
-       failure tries the next (after the first answer the Home's own
-       order gave BuildOrderClause NullReference every time) */
-    var sorts = [T.goodSort, T.appSort, APP_SORT, [{ fieldName: 'lastAccessDate', ordering: 'descend' }]]
+    /* the order: the one that worked last, else ours, else the Home's;
+       each failure tries the next (BuildOrderClause NullReference) */
+    var sorts = [T.goodSort, APP_SORT, T.appSort, [{ fieldName: 'lastAccessDate', ordering: 'descend' }]]
       .filter(function (s, i, all) { return s && all.indexOf(s) === i; });
     var sortUsed = sorts[(T.titlesFails || 0) % sorts.length];
     var spaces = ['game', 'media'], got = {}, left = spaces.length, failed = false;
@@ -3635,7 +3709,12 @@
           return cond.call(this, ctx, cc, sort);
         }
         if (T.tabCtx) delete T.tabCtx[ctx];
-        if (Array.isArray(sort) && sort.length) T.appSort = sort;
+        /* only plain column orders: the Home's queries by a list of ids
+           sort by {columnType: 'givenTitleIdListVirtual'}, which needs that
+           list; ours has none (BuildOrderClause NullReference at each Apply) */
+        if (Array.isArray(sort) && sort.length && sort.every(function (o) {
+              return o && typeof o === 'object' && typeof o.fieldName === 'string' && !('columnType' in o); }))
+          T.appSort = sort;
         var r = cond.apply(this, arguments);
         if (c && typeof c === 'object' && c.userId != null) T.lastUid = c.userId;
         if (c && typeof c === 'object' && c.userId != null && !T.allTitlesAsked) {
@@ -3705,6 +3784,87 @@
     return String(THEME.favorites || '').split(',').map(function (t) { return t.trim().toUpperCase(); })
       .filter(function (t, i, all) { return /^[A-Z]{4}\d{5}$/.test(t) && all.indexOf(t) === i; });
   }
+  /* Favourites tab with no favourites: the row still holds the Game Library
+     tile (an empty row is never drawn right), but it is hidden: the row box
+     opacity 0 (T.favEmptyOp), the library page out of the screen, X and down
+     on it do nothing (opening the library from our tab went wrong), no fake
+     title, and FavEmptyMsg says what to do instead. */
+  var favEmptyListeners = [];
+  function favEmptyNow() { return APP === 'home' && !!THEME.tabFavOn && T.tabSel === 'zt_fav' && !!T.favEmpty; }
+  function favEmptyUpdate() {
+    var now = favEmptyNow();
+    if (T.favEmptyShown === now) return;
+    T.favEmptyShown = now;
+    if (T.favEmptyOp) try { T.favEmptyOp.setValue(now ? 0 : 1); } catch (e) { log('favourites empty: ' + e); }
+    if ((T.favEmptyLogs = (T.favEmptyLogs || 0) + 1) <= 6) log('favourites: ' + (now ? 'empty tab, message shown' : 'message hidden'));
+    setTimeout(function () { favEmptyListeners.forEach(function (f) { try { f(); } catch (e) {} }); }, 0);
+  }
+  function favEmptyOpacity() {
+    var A = T.rn && T.rn.Animated;
+    if (!T.favEmptyOp && A && typeof A.Value === 'function') T.favEmptyOp = new A.Value(favEmptyNow() ? 0 : 1);
+    return T.favEmptyOp;
+  }
+  /* X on the hidden Game Library tile: the handler the tile gets is asked
+     at press time, so it still works in the Games tab */
+  var favPressWraps = new WeakMap();
+  function favEmptyItem(props) {
+    var e = props.experience;
+    if (!THEME.tabFavOn || !e || typeof e !== 'object' || e.id !== 'NPXS40071' ||
+        typeof props.onItemPress !== 'function' || props.onItemPress.__ztFav) return;
+    var p = props.onItemPress, w = favPressWraps.get(p);
+    if (!w) {
+      w = function () {
+        var h = p.apply(this, arguments);
+        if (typeof h !== 'function') return h;
+        return function () {
+          if (favEmptyNow()) { log('favourites: X on the hidden Game Library ignored'); return; }
+          return h.apply(this, arguments);
+        };
+      };
+      w.__ztFav = true;
+      favPressWraps.set(p, w);
+    }
+    props.onItemPress = w;
+  }
+  /* down from the row into the library page */
+  var favDownWraps = new WeakMap();
+  function favEmptyDown(orig) {
+    if (typeof orig !== 'function') return orig;
+    var w = favDownWraps.get(orig);
+    if (!w) {
+      w = function (e) {
+        if (favEmptyNow()) { take(e); return false; }
+        return orig.apply(this, arguments);
+      };
+      favDownWraps.set(orig, w);
+    }
+    return w;
+  }
+  function FavEmptyMsg() {
+    var React = T.React, rn = T.rn;
+    var tick = React.useState(0)[1];
+    React.useEffect(function () {
+      var f = function () { tick(function (n) { return n + 1; }); };
+      favEmptyListeners.push(f);
+      return function () {
+        var i = favEmptyListeners.indexOf(f);
+        if (i >= 0) favEmptyListeners.splice(i, 1);
+      };
+    }, []);
+    if (!favEmptyNow()) return null;
+    var h = THEME.focusSize ? focusHeight() : 168;
+    var top = 126 + (THEME.rowOffsetY || 0) + (THEME.focusY || 0);
+    var px = fontSize(32) || 32, px2 = fontSize(24) || 24;
+    var color = THEME.tileNameColor || '#ffffff';
+    if (!T.done['favourites empty message']) done('favourites empty message');
+    return React.createElement(rn.View, { pointerEvents: 'none', style: {
+        position: 'absolute', left: 0, right: 0, top: top, height: h,
+        alignItems: 'center', justifyContent: 'center' } },
+      React.createElement(rn.Text, { key: 'a', style: { fontSize: px, color: color } },
+                          THEME.tabFavEmpty1 || 'Nothing to show here!'),
+      React.createElement(rn.Text, { key: 'b', style: { fontSize: px2, color: color, opacity: 0.75, marginTop: 8 } },
+                          THEME.tabFavEmpty2 || 'Add a game to your favourites!'));
+  }
   /* the rows of our tabs, by their ids: rowSpace leaves them alone (no
      folder tiles, no game list for the editor) */
   T.tabRows = {};
@@ -3733,6 +3893,7 @@
       out.sort(function (a, b) { return playedAt(b) - playedAt(a); });
       out = out.slice(0, Math.max(1, Math.floor(Number(THEME.tabRecentMax)) || 12));
     }
+    if (tab === 'zt_fav') { T.favEmpty = !out.length; favEmptyUpdate(); }
     if (lib && !out.length) out.push(lib);
     T.tabRows[out.map(function (r) { return r.titleId; }).join(',')] = tab;
     var line = tab + ': ' + out.length + ' of ' + items.length + ' titles';
@@ -3800,10 +3961,8 @@
     tabs.forEach(function (t) {
       try {
         if (bar && ids.indexOf(t.id) < 0) {
-          /* Favourites on the left of Games (the space atom starts on
-             'game' whatever the order) */
-          if (t.id === 'zt_fav' && THEME.tabFavFirst !== false) ids.splice(ids.indexOf('game'), 0, t.id);
-          else ids.push(t.id);
+          /* always after Games / Media: Favourites first is only drawn so (tabsOrder) */
+          ids.push(t.id);
           if (!T.done['tabs: spaceIds']) done('tabs: spaceIds in module ' + id + ' (' + ids.join(',') + ')');
         }
         if (text && typeof text === 'object' && !Array.isArray(text) && 'game' in text && !(t.id in text))
@@ -3816,10 +3975,60 @@
   /* L1 / R1: Games <-> Media stays the Home's; every other move goes
      through ours, with the Home's own sound and move (AniketosHEN's
      patchSpaceFocus). any order (Favourites left of Games) */
+  /* tabsAlign: where the tabs sit inside their box (0 left, 0.5 centre,
+     1 right); the old tabsCenter switch = centre */
+  function tabsAlignPart() {
+    var a = THEME.tabsAlign || (THEME.tabsCenter ? 'center' : '');
+    return a === 'center' ? 0.5 : a === 'right' ? 1 : a === 'left' ? 0 : -1;
+  }
+  /* the tabs layer ('space-switcher', FocusLayerPS + the View it passes its
+     props to) stretched across the whole box: alignSelf makes it as wide
+     as the tabs and puts it left / centre / right (no change of type: a
+     tabs box turned Animated.View drew nothing) */
+  function tabsAlignLayer(props) {
+    var part = tabsAlignPart();
+    if (APP !== 'home' || part < 0 || props.name !== 'space-switcher') return;
+    props.style = [props.style, { alignSelf: part === 0.5 ? 'center' : part === 1 ? 'flex-end' : 'flex-start' }];
+    if (!T.done['tabs aligned']) done('tabs aligned ' + THEME.tabsAlign);
+  }
+  /* Favourites first: only the bar draws it on the left of Games. The
+     Home's spaceIds keeps Games first (with zt_fav first, O no longer got
+     out of the Game/App Library); T.spaceOrder is the order on screen */
+  function tabsOrder(props) {
+    if (APP !== 'home' || props.name !== 'space-switcher' || !THEME.tabFavOn || THEME.tabFavFirst === false) return;
+    var kids = props.children;
+    var flat = Array.isArray(kids) ? (kids.length === 1 && Array.isArray(kids[0]) ? kids[0] : kids) : null;
+    if (!flat) return;
+    var idOf = function (k) {
+      if (!k || !k.props) return '';
+      if (typeof k.props.name === 'string' && k.props.name.indexOf('space-switcher-') === 0) return k.props.name.slice(15);
+      if (typeof k.props.spaceId === 'string') return k.props.spaceId;
+      return typeof k.key === 'string' ? k.key : '';
+    };
+    var fi = -1, gi = -1;
+    for (var i = 0; i < flat.length; i++) {
+      var id = idOf(flat[i]);
+      if (id === 'zt_fav' || /zt_fav$/.test(id)) fi = i;
+      else if (id === 'game' || /(^|-)game$/.test(id)) gi = i;
+    }
+    if (fi < 0 || gi < 0 || fi < gi) return;
+    var out = flat.slice(), fav = out.splice(fi, 1)[0];
+    out.splice(gi, 0, fav);
+    if (flat === kids) props.children = out; else props.children = [out];
+    if (!T.done['tabs: Favourites drawn first']) done('tabs: Favourites drawn first');
+  }
+  function spaceOrder() {
+    var ids = Array.isArray(T.spaceIds) ? T.spaceIds.slice() : ['game', 'media'];
+    if (THEME.tabFavOn && THEME.tabFavFirst !== false && ids.indexOf('zt_fav') > ids.indexOf('game') && ids.indexOf('game') >= 0) {
+      ids.splice(ids.indexOf('zt_fav'), 1);
+      ids.splice(ids.indexOf('game'), 0, 'zt_fav');
+    }
+    return ids;
+  }
   function tabNeighbour(step) {
     /* from the tab the bar shows (T.space flickers during a change) */
     var cur = T.tabSel || T.space;
-    var ids = T.spaceIds, at = Array.isArray(ids) ? ids.indexOf(cur) : -1;
+    var ids = spaceOrder(), at = ids.indexOf(cur);
     if (at < 0) return null;
     var next = ids[at + step];
     if (typeof next !== 'string') return null;
@@ -3842,6 +4051,7 @@
       if (T.tabSel && old !== space) {
         T.tabSel = space;
         try { spaceMoved(old, space); } catch (e) {}
+        favEmptyUpdate();
       }
       go(space);
       return false;
@@ -3984,6 +4194,7 @@
     T.tabSel = sid;
     T.space = sid;
     if (old) try { spaceMoved(old, sid); } catch (e) { log('tab animation: ' + e); }
+    favEmptyUpdate();
   }
   function tabPill(props) {
     var React = T.React, rn = T.rn;
@@ -5064,6 +5275,8 @@
     if (items.some(function (e) { return e && typeof e.key === 'string' && e.key.indexOf('zt-lib-') === 0; })) return;
     if (!T.done['library options menu']) done('library options menu (' + Object.keys(props).join(', ') + '; ' + items.length + ' items)');
     T.libMenus = T.libMenus || new WeakSet();
+    /* no theme features (diagnostic build with no theme): menu left stock */
+    if (PLAIN) return;
     /* the custom tile items too (as the Home's menu) */
     var tileItems = id && !/^NPXS/.test(id) ? customMenuItems(id) : [];
     if ((THEME.folderMenu === false && !tileItems.length) || !id || /^NPXS/.test(id) || T.libMenus.has(items)) return;
@@ -5619,7 +5832,7 @@
     var fetchFn = exp.fetchExperienceOptionsByTitleId;
     if (typeof fetchFn === 'function' && !fetchFn.__theme) {
       var fetchWrapped = function (titleId) {
-        var folderOn = !STOCK && folderMenuOn();
+        var folderOn = !PLAIN && folderMenuOn();
         /* Options > ZhiThemes on top */
         var top = [];
         try { top = [themesMenuItem()]; } catch (e) { log('theme menu error: ' + e); }
@@ -5628,8 +5841,8 @@
           log('options menu: folder ' + titleId + ' (' + own.length + ' items)');
           return Promise.resolve(own);
         }
-        var extra = STOCK ? [] : (folderOn ? gameMenuItems(titleId) : []).concat(customMenuItems(titleId), favMenuItems(titleId));
-        var hide = STOCK ? { any: false, ids: {} } : menuHidden();
+        var extra = PLAIN ? [] : (folderOn ? gameMenuItems(titleId) : []).concat(customMenuItems(titleId), favMenuItems(titleId));
+        var hide = PLAIN ? { any: false, ids: {} } : menuHidden();
         var native = fetchFn.apply(this, arguments);
         if (!top.length && !extra.length && !hide.any) return native;
         if (extra.length) log('options menu: ' + titleId + ' + ' + extra.length + ' folder items');
@@ -5653,7 +5866,7 @@
     if (typeof keepFn === 'function' && !keepFn.__theme) {
       var keepWrapped = function () {
         var r = keepFn.apply(this, arguments);
-        if (r && typeof r === 'object' && r.keepInHomeComponent && !STOCK && menuHidden().keep) {
+        if (r && typeof r === 'object' && r.keepInHomeComponent && !PLAIN && menuHidden().keep) {
           var c = {};
           for (var k in r) c[k] = r[k];
           c.keepInHomeComponent = null;
@@ -5699,7 +5912,7 @@
         /* Delete: read the installed titles again a few times (the game
            leaves its folder, folderPrune) */
         var del = args.onDeleteApp;
-        if (typeof del === 'function' && !STOCK) {
+        if (typeof del === 'function' && !PLAIN) {
           a.onDeleteApp = function () {
             /* the game being deleted is still in every title for a while:
                it must not come back into the row as a filler (the Home kept it
@@ -5973,10 +6186,12 @@
             if (THEME.footerIconColor && typeof Icon.getImageProps === 'function' && rn.Image) {
               try { src = (Icon.getImageProps({ iconId: iconId }) || {}).source; } catch (e) {}
             }
+            if (THEME.footerIconColor && rn.Image && ownButtonUri(iconId)) src = src || true;
             if (src) {
-              st.tintColor = THEME.footerIconColor;
-              st.resizeMode = 'contain';
-              items.push(pulseWrap('b' + i, THEME['footerIcon' + (i + 1)], React.createElement(rn.Image, { key: 'b' + i, source: src, style: st })));
+              var outer = { marginRight: st.marginRight };
+              if (st.marginLeft != null) outer.marginLeft = st.marginLeft;
+              items.push(pulseWrap('b' + i, THEME['footerIcon' + (i + 1)],
+                                   tintedIcon(React, rn, src, size, THEME.footerIconColor, 'b' + i, outer, iconId)));
               if (!T.done['footer button colour']) done('footer button colour');
             } else {
               if (THEME.footerIconColor) { st.tintColor = THEME.footerIconColor; st.color = THEME.footerIconColor; }
@@ -6213,6 +6428,24 @@
      none, not focusable): a controller button / system icon (IconPS iconId)
      or an uploaded image (rn.Image from /data/ZhiThemes/backgrounds) */
   /* a controller button ('l1'), a system icon name or a .png, size x size */
+  /* a controller button tinted with a colour. The PS5's own pictures are
+     grey and the PS5 multiplies tintColor by them (measured on a capture:
+     ~75% of the colour, also with copies stacked), so the usual buttons use
+     white ones of ZhiThemes (THEME/make_button_icons.py, written with the
+     particle textures to Assets/particles/btn_<name>.png): exact colour. */
+  var OWN_BUTTONS = { face_cross: 'cross', face_circle: 'circle', face_square: 'square', face_triangle: 'triangle',
+                      l1: 'l1', r1: 'r1', l2: 'l2', r2: 'r2', options: 'options' };
+  function ownButtonUri(iconId) {
+    var k = OWN_BUTTONS[String(iconId || '').replace(/^controller_key_/, '')];
+    return k ? 'file://' + ZT_ASSETS + 'particles/btn_' + k + '.png' : null;
+  }
+  function tintedIcon(React, rn, src, size, color, key, outer, iconId) {
+    var own = ownButtonUri(iconId);
+    var st = { width: size, height: size, tintColor: color };
+    if (outer) for (var ok in outer) st[ok] = outer[ok];
+    if (own && !T.done['white button pictures']) done('white button pictures');
+    return React.createElement(rn.Image, { key: key, source: own ? { uri: own } : src, resizeMode: 'contain', style: st });
+  }
   function decoIcon(v, size, color) {
     var React = T.React, rn = T.rn;
     if (!React || !rn || typeof v !== 'string' || !v.trim()) return null;
@@ -6223,6 +6456,14 @@
     }
     var Icon = iconComponent(), id = buttonIcon(v) || v.trim();
     var st = { width: size, height: size };
+    /* IconPS ignores tintColor and draws its own grey (the L1/R1 of the tabs
+       group came out darker than names of the same colour): with a colour
+       the same picture goes in an Image, tinted, as the footer does */
+    if (color && Icon && typeof Icon.getImageProps === 'function' && rn.Image) {
+      var src = null;
+      try { src = (Icon.getImageProps({ iconId: id }) || {}).source; } catch (e) {}
+      if (src || ownButtonUri(id)) return tintedIcon(React, rn, src, size, color, 'tint', null, id);
+    }
     if (color) { st.tintColor = color; st.color = color; }
     return Icon ? React.createElement(Icon, { iconId: id, style: st }) : null;
   }
@@ -6506,7 +6747,7 @@
     if (!tabAnimOn() || !T.rowBox) return;
     var v = tabAnimValues(), A = T.rn.Animated;
     if (!v) return;
-    var ids = Array.isArray(T.spaceIds) ? T.spaceIds : ['game', 'media'];
+    var ids = spaceOrder();
     var a = ids.indexOf(from), b = ids.indexOf(to);
     var dir = a < 0 || b < 0 ? 1 : b > a ? 1 : -1;
     var dist = THEME.animTabsSlide == null ? 90 : Number(THEME.animTabsSlide) || 0;
@@ -6804,8 +7045,9 @@
       nameListeners.push(f);
       folderListeners.push(f);
       logoListeners.push(f);
+      favEmptyListeners.push(f);
       return function () {
-        [nameListeners, folderListeners, logoListeners].forEach(function (list) {
+        [nameListeners, folderListeners, logoListeners, favEmptyListeners].forEach(function (list) {
           var i = list.indexOf(f);
           if (i >= 0) list.splice(i, 1);
         });
@@ -6816,6 +7058,7 @@
     var g = stripGame(), f = !g && T.folderSel && T.folders && T.folders[T.folderSel];
     var text = g ? g.game.name : f && f.name ? f.name : T.gameName, pos = fakeTitlePos();
     if (!text || !pos) return null;
+    if (favEmptyNow()) return null;
     /* a game with a logo shows the logo instead (logoHidesTitle) */
     if (THEME.logoHidesTitle !== false && logoShown()) return null;
     if (!T.done['fake title']) done('fake title at ' + pos.join(',') + (oldTitles() ? ' (old fields)' : ''));
@@ -8403,7 +8646,35 @@
       log('library: hub page ' + tag.slice(0, 140) + ' marginTop=' + props.marginTop +
           (lib && focused ? ' style=' + JSON.stringify(props.style) : ''));
     }
-    if (!lib || !focused || props.isHubFocused || !(THEME.libraryPeekDown > 0)) return;
+    if (!lib || !focused) return;
+    T.libOpened = T.libOpened || {};
+    if (props.isHubFocused) { T.libOpened[u] = true; return; }
+    /* libraryHideGames: the page waits out of the screen until it opens
+       (its games showed under the row); always in an empty Favourites tab.
+       Once the library was open it is never moved while its tile is still
+       the selected one: moving that page (the selected tile's hub, the
+       row's way down) sent the focus straight back into the library, so O
+       never got back to the row. It goes out of the screen again when
+       another tile is selected (T.selectedId, the tabs' downCandidate). */
+    if (T.libOpened[u]) {
+      var selLib = isLibraryUrl(T.selectedId) || T.selectedId == null;
+      if (selLib) {
+        if (!T.libKept || T.libKept !== u) {
+          T.libKept = u;
+          if ((T.libBackLogs = (T.libBackLogs || 0) + 1) <= 6) log('library: back from ' + u.slice(0, 60) + ', page left in place while its tile is selected');
+        }
+        return;
+      }
+      T.libOpened[u] = false;
+      T.libKept = null;
+      log('library: another tile selected (' + T.selectedId + '), page hidden again');
+    }
+    if (THEME.libraryHideGames || favEmptyNow()) {
+      props.style = [props.style, { top: 2000 }];
+      if (!T.done['library games hidden']) done('library games hidden until opened');
+      return;
+    }
+    if (!(THEME.libraryPeekDown > 0)) return;
     props.style = [props.style, { top: THEME.libraryPeekDown }];
     if (!T.done['library page down']) done('library page down ' + THEME.libraryPeekDown);
   }
@@ -8690,6 +8961,7 @@
       if (APP === 'home' && props && typeof props === 'object') {
         topIcons(props);
         seeRow(props);
+        favEmptyItem(props);
         hubLayer(props);
         if ('hubUrl' in props && 'focusLayerName' in props) {
           libraryHub(props);
@@ -8714,6 +8986,8 @@
         if (props.focusCustomSettings && typeof props.focusCustomSettings === 'object') {
           rowLayer(props);
           topLayers(props);
+          tabsOrder(props);
+          tabsAlignLayer(props);
           tabsGroup(props);
         }
         /* Game Library open: the Home only moves up SYSTEM_HEIGHT +
@@ -8746,12 +9020,14 @@
            top of the library, so the row hides there even with the switch off */
         /* also while animTabs is on (the tab change slides / fades the
            row in); both: the opacities multiplied */
-        var libHide = false, tabA = null;
+        var libHide = false, tabA = null, favOp = null;
         if (T.rowBox && props.style === T.rowBox && T.rn && T.rn.Animated && T.rn.Animated.View) {
           libHide = (THEME.hideRowInLibrary || tileRatio() > 1) && !!T.homeLift;
           tabA = tabAnimOn() && tabAnimValues();
+          /* the Favourites tab with no favourites hides its row */
+          favOp = THEME.tabFavOn ? favEmptyOpacity() : null;
         }
-        if (libHide || tabA) {
+        if (libHide || tabA || favOp) {
           var AN = T.rn.Animated, rowSt = {};
           if (libHide) {
             var lib = T.selectedId === 'NPXS40071' || T.selectedId === 'NPXS40139';
@@ -8765,6 +9041,10 @@
             var rowTf = [{ translateX: tabA.x }];
             rowSt.transform = (Array.isArray(T.rowBox.transform) ? T.rowBox.transform : []).concat(rowTf);
             if (!T.done['tab animation ready']) done('tab animation ready');
+          }
+          if (favOp) {
+            if (rowSt.opacity == null) rowSt.opacity = favOp;
+            else if (typeof AN.multiply === 'function') rowSt.opacity = AN.multiply(rowSt.opacity, favOp);
           }
           props.style = [props.style, rowSt];
           var rowArgs = Array.prototype.slice.call(arguments);
@@ -8808,7 +9088,7 @@
            THEME.box1On || THEME.box2On || THEME.box3On || THEME.user ||
            THEME.searchDetached || THEME.settingsDetached || THEME.profileDetached || THEME.iconsNav ||
            THEME.fakeTrophies || THEME.deco1On || THEME.deco2On || THEME.deco3On || THEME.deco4On ||
-           THEME.folders || THEME.menuMove || THEME.playInfoOn || (THEME.tabFavOn && THEME.animFav !== false) || THEME.animToast || THEME.debugOverlay) &&
+           THEME.folders || THEME.menuMove || THEME.playInfoOn || THEME.tabFavOn || THEME.animToast || THEME.debugOverlay) &&
           T.root && props && typeof props === 'object' && props.style === T.root) {
         var children = props.children;
         children = Array.isArray(children) ? children.slice() : children == null ? [] : [children];
@@ -8825,6 +9105,8 @@
           front.push(T.React.createElement(OwnClock, { key: 'theme-own-clock' }));
         if (titleMode() === 'fake' && T.React && APP === 'home')
           front.push(T.React.createElement(FakeTitle, { key: 'theme-fake-title' }));
+        if (THEME.tabFavOn && T.React && APP === 'home' && typeof T.React.useState === 'function')
+          front.push(T.React.createElement(FavEmptyMsg, { key: 'theme-fav-empty' }));
         if (logoOn() && T.React && typeof T.React.useState === 'function')
           front.push(T.React.createElement(GameLogo, { key: 'theme-game-logo' }));
         if (THEME.folders && titleMode() !== 'fake' && THEME.foldersTitle !== false && T.React && APP === 'home')
@@ -9317,7 +9599,7 @@
   /* 30 s after the start, the cache names this Home uses (mosaics,
      folder backgrounds, tall icons): ZhiThemes deletes the other old ones.
      A deleted one is made again when it is asked for. */
-  if (APP === 'home' && !STOCK)
+  if (APP === 'home' && !PLAIN)
     setTimeout(function () {
       try {
         var mos =Object.keys(T.mosaicAsked || {}), fbg = Object.keys(T.fbgAsked || {});

@@ -26,6 +26,7 @@ python3 "${THEME}/gen_theme_header.py" "${THEME}/theme_factory.js" \
 python3 "${THEME}/gen_theme_header.py" "${THEME}/editor.html" \
   "${SRC}/source/shellui/include/theme_web_page.hpp" kThemeWebPage
 # the textures of the built-in particle styles (theme/particles, from AniketosHEN)
+# and the white controller buttons btn_*.png (theme/make_button_icons.py)
 python3 "${THEME}/gen_particles_header.py" "${THEME}/particles"   "${SRC}/source/shellui/include/zt_particle_textures.hpp"
 
 # 2) configure once (OnionHEN's pipeline), 3) build only the ZhiThemes payload

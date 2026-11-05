@@ -2449,6 +2449,7 @@ void eval_theme(MonoObject *self, const char *app, unsigned hub_id = 0) {
                              "\";\nglobalThis.__ztHubId = " + std::to_string(hub_id) + ";\n" +
                              "globalThis.__ztStock = " + (stock ? "true" : "false") + ";\n" +
                              "globalThis.__ztDiag = " + std::string(ZT_DIAG ? "true" : "false") + ";\n" +
+                             "globalThis.__ztDiagPlain = " + std::string(diag_plain ? "true" : "false") + ";\n" +
                              "globalThis.__ztFonts = " + font_table() + ";\n" +
                              "globalThis.__ztUser = " + ascii_js(user_name_js()) + ";\n" +
                              /* Logs tab: debug mode (logs/debug.on) */

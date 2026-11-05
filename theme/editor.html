@@ -502,6 +502,8 @@
     tabsGroupHeight: ['Background height', 'px (centred in the top bar)'],
     tabsGroupPadding: ['Background padding', 'Space inside the background, left and right'],
     tabsGroupCorners: ['Background corners', 'Corner radius; half the height = pill'],
+    tabsAlign: ['Tabs alignment', 'Stock, or left / centre / right inside the tabs width (centre grows to both sides). With X 0 and width 1752 centre is the middle of the screen'],
+    tabsWidth: ['Tabs width', 'Width of the box the tabs are aligned in (only with an alignment)'],
     tabsSameWeight: ['Same weight for all tabs', 'The other tabs as bold as the selected one, so the bar does not move when the tab changes'],
     tabsPillOn: ['Selected tab panel', 'A panel ("pill") behind the selected tab (Games, Media, ...)'],
     tabsPillColor: ['Panel colour', ''],
@@ -675,6 +677,7 @@
     hideStore: ['PlayStation Store tile', 'Removes the Store tile from the row'],
     hideAllApps: ['"All apps" tile', 'Removes the All apps tile (NPXS40056) from Media'],
     hideGallery: ['Media Gallery tile', 'Removes the Media Gallery tile (NPXS40075) from the row'],
+    libraryHideGames: ['Hide library games', 'The Game/App Library tile no longer shows its games under the row before you open it'],
     hideRowInLibrary: ['Row in the Library', 'Hides the row (tiles, name) at the top of the Game/App Library; always hidden with vertical tiles'],
     hideTileName: ['Tile name', 'Text of the small name next to the focused tile (comes back in the hub view); the PS5 symbol has its own switch'],
     hideTabs: ['Tabs', '"Games / Media"'],
@@ -1154,6 +1157,7 @@
     else if (/^focus(Line|Glow)[RGB]$/.test(key)) r = [0, 255, 1];
     else if (/Scale$/.test(key)) r = [0.3, 3, 0.05];
     else if (key === 'hubOffset') r = [-300, 600, 1];
+    else if (key === 'tabsWidth') r = [200, 1920, 1];
     else if (/^(nameCopy|user|footer)Shadow$/.test(key)) r = [-1, 40, 1];
     else if (/^tileShadow[XY]?$/.test(key)) r = [-60, 80, 1];
     else if (key === 'tileReflection' || key === 'tileReflectionHeight') r = [0, 1, 0.05];
@@ -1214,7 +1218,7 @@
   /* fields taken out of the editor (theme.js still reads them for old
      themes); one with a value of its own still shows, marked "old", so it
      can be set back */
-  var RETIRED = /^(panelTintOn|panelTintColor|panelTintStrength|panelTintOpacity|iconTintOn|iconTintColor|focusIntensity|focusShimmerSpeed|trophiesX|trophiesY|trophiesCorners|trophiesOpacity|systemFontBold|systemFontItalic|systemFontBoldItalic|systemFontMissing|elementFont|fontStyle)$/;
+  var RETIRED = /^(tabsCenter|tabsAnchor|panelTintOn|panelTintColor|panelTintStrength|panelTintOpacity|iconTintOn|iconTintColor|focusIntensity|focusShimmerSpeed|trophiesX|trophiesY|trophiesCorners|trophiesOpacity|systemFontBold|systemFontItalic|systemFontBoldItalic|systemFontMissing|elementFont|fontStyle)$/;
   function retiredNow(f) { return RETIRED.test(f.key) && f.value === factoryOf(f.hint); }
   var COLOUR_KEY = /Color$|^(topBarBg|footerBg|box\d|tabsGroupBg|nameCopyBg|playInfoBg|fakeTrophiesBg|shellBgGlow|foldersStripBg)$/;
   var RGB_KEY = /^focus(Line|Glow)R$/, RGB_FOLDED = /^focus(Line|Glow)[GB]$/;
@@ -1504,6 +1508,7 @@
         ? [['top', 'Top'], ['center', 'Centre'], ['bottom', 'Bottom']]
         : f.key === 'logoAlign'
         ? [['left', 'Left'], ['center', 'Centre'], ['right', 'Right']]
+
         : f.key === 'animNamesStyle'
         ? [['slide', 'Slide in'], ['fade', 'Fade'], ['rise', 'Rise']]
         : f.key === 'particlesStyle'
@@ -4257,7 +4262,7 @@
   var EL = [
     { id: 'tabs', name: 'Tabs', app: 'home', guess: [84, 0, 611, 126],
       dx: [['tabsX', 1]], dy: [['tabsY', 1]], mx: 'tabsX', my: 'tabsY',
-      hideKey: 'hideTabs', extra: ['tabsSpacing', 'tabsFontSize', 'tabsFontStyle', 'tabsInactiveOpacity', 'tabsSameWeight', 'tabsColor',
+      hideKey: 'hideTabs', extra: ['tabsAlign', 'tabsWidth', 'tabsSpacing', 'tabsFontSize', 'tabsFontStyle', 'tabsInactiveOpacity', 'tabsSameWeight', 'tabsColor',
       'topBarOpacity', 'tabsGroup', 'tabsGroupLeft', 'tabsGroupRight', 'tabsGroupIconSize', 'tabsGroupIconGap',
       'tabsGroupIconColor', 'tabsGroupIconOpacity', 'tabsGroupBgOn', 'tabsGroupBg', 'tabsGroupBgOpacity',
       'tabsGroupHeight', 'tabsGroupPadding', 'tabsGroupCorners', 'tabsPillOn', 'tabsPillColor', 'tabsPillOpacity',
@@ -4313,13 +4318,13 @@
       extra: ['tileSize', 'focusSize', 'rowTileGap', 'tileVertical', 'tileCorners', 'rowSpeed', 'rowBounce', 'rowBounceStrength', 'rowMaxGames', 'animationSpeed',
               'tileShadow', 'tileShadowColor', 'tileShadowOpacity', 'tileReflection', 'tileReflectionHeight',
               'tileReflectionGap', 'tileReflectionWaves', 'textShadow', 'textShadowColor',
-              'hideStore', 'hideAllApps', 'hideGallery', 'hideRowInLibrary', 'hideTiles', 'downloadBarColor', 'downloadBarBgColor', 'fixDetails'] },
+              'hideStore', 'hideAllApps', 'hideGallery', 'hideRowInLibrary', 'libraryHideGames', 'hideTiles', 'downloadBarColor', 'downloadBarBgColor', 'fixDetails'] },
     { id: 'focusTile', name: 'Focused tile', app: 'home', parent: 'row', guess: [172, 126, 168, 168],
       mx: 'focusX', my: 'focusY', grow: 'focusSize',
       extra: ['focusSize', 'tileSize', 'tileCorners', 'rowOffsetY', 'hideFocus', 'focusLineColorOn', 'focusThickness', 'focusGap',
               'focusCorners', 'focusAnimated', 'hideGlow'] },
     { id: 'tileName', name: 'Tile name', app: 'home', guess: [357, 248, 400, 34],
-      dx: [['tileNameX', 1, 't'], ['focusSize', 1]], dy: [['tileNameY', 1, 't'], ['rowOffsetY', 1], ['tileSize', 1]],
+      dx: [['tileNameX', 1, 't'], ['focusSize', 1], ['rowX', 1]], dy: [['tileNameY', 1, 't'], ['rowOffsetY', 1], ['tileSize', 1]],
       mx: 'tileNameX', my: 'tileNameY', hideKey: 'hideTileName', extra: ['tileNameColor', 'tileNameScale', 'tileNameFontStyle', 'hideTileName', 'hidePS5Icon'] },
     { id: 'fakeTitle', name: 'Fake title', app: 'home', toggle: '__fake',
       mx: 'fakeTitleX', my: 'fakeTitleY', extra: ['titleMode', 'nameCopyFontSize', 'nameCopyFontStyle', 'nameCopyAlign', 'nameCopyWidth', 'nameCopyWrap', 'nameCopyScroll', 'nameCopyScrollSpeed', 'nameCopyColor', 'nameCopyShadow',
@@ -4389,7 +4394,7 @@
      size fields come first by themselves. Modules without a place on the
      screen (VIRT) are in the list under "Whole screen". */
   var MODULE_FIELDS = {
-    tabs: ['#Look', 'tabsSpacing', 'tabsFontSize', 'tabsFontStyle', 'tabsColor', 'tabsInactiveOpacity', 'tabsSameWeight', 'topBarOpacity',
+    tabs: ['#Look', 'tabsAlign', 'tabsWidth', 'tabsSpacing', 'tabsFontSize', 'tabsFontStyle', 'tabsColor', 'tabsInactiveOpacity', 'tabsSameWeight', 'topBarOpacity',
            '#Selected tab (pill)', 'tabsPillOn', 'tabsPillColor', 'tabsPillOpacity', 'tabsPillCorners', 'tabsPillPadX', 'tabsPillPadY',
            'tabsPillBorderColor', 'tabsPillBorderWidth', 'tabsPillTextColor',
            '#Group (icons + background)', 'tabsGroup', 'tabsGroupLeft', 'tabsGroupRight', 'tabsGroupIconSize', 'tabsGroupIconGap',
@@ -4415,7 +4420,7 @@
           '#Reflection', 'tileReflection', 'tileReflectionHeight', 'tileReflectionGap', 'tileReflectionSteps', 'tileReflectionWaves',
           'tileReflectionWaveSpeed', 'tileReflectionFlip',
           '#Pictures', 'customTilesOn', 'tileAnimOn',
-          '#Items', 'hideStore', 'hideAllApps', 'hideGallery', 'hideRowInLibrary', 'hideTiles',
+          '#Items', 'hideStore', 'hideAllApps', 'hideGallery', 'hideRowInLibrary', 'libraryHideGames', 'hideTiles',
           '#Download bar', 'downloadBarColor', 'downloadBarBgColor'],
     focusTile: ['#Size & shape', 'focusSize', 'tileSize', 'focusShape', 'tileCorners', 'rowGapBefore', 'rowGapAfter', 'rowOffsetY',
                 '#Frame', 'hideFocus', 'focusThickness', 'focusGap', 'focusCorners', 'focusIntensity',
@@ -4612,6 +4617,9 @@
     var pts = (src.pts || src.xs.map(function (x) { return [x, src.y]; })).slice()
                 .sort(function (a, b) { return a[0] - b[0]; });
     if (measured) pts = fillHoles(pts, src.rec);
+    /* the stock row starts with the Store (left of the focused tile): with
+       hideStore it is not there and the focused tile is the first one */
+    else if (c.hideStore === true || c.hideStore === 'true') pts = pts.slice(1);
     var xs = pts.map(function (p) { return p[0]; }), f = 0, best = 1e9;
     var rec = src.rec, shift = num(c.rowX) - num(rec.rowX), out = [];
     /* the row always puts the focused tile at SCALED_EXP_MARGIN_LEFT (172 + rowX);
@@ -4802,8 +4810,19 @@
       return s;
     };
     b[0] += sum(e.dx); b[1] += sum(e.dy); b[2] += sum(e.dw); b[3] += sum(e.dh);
+    /* centred tabs: the box keeps its width around the middle (+ tabsX) */
+    /* tabs with an alignment: the box is tabsWidth wide from 84 + tabsX (as on
+       the PS5); the content is drawn aligned inside it */
+    if (e.id === 'tabs' && tabsAligned(c)) {
+      b[0] = 84 + num(c.tabsX);
+      b[2] = num(c.tabsWidth) || 1752;
+    }
     /* the focused shape's extra width moves the tile name (as on the PS5) */
     if (e.id === 'tileName') b[0] += shapeExtraPx(c) - (rec && rec.focusShape != null ? shapeExtraPx(rec) : 0);
+    /* vertical tiles: the name goes down with the focused tile's extra height
+       (TITLE_Y + focusHeight − focusSize, as theme.js does) */
+    if (e.id === 'tileName' && !measured && tileRatio(c) > 1)
+      b[1] += Math.round(num(c.focusSize) * tileRatio(c)) - num(c.focusSize);
     /*  the icons and the clock move with left/top (the measure
        already includes them). An icon with …Scale s shows on the console
        (s−1)·width to the right and (s−1)·height/2 below the measured box
@@ -4864,6 +4883,12 @@
   }
 
   /* what shows inside each box (preview mode) */
+  function tabsJustify(c) {
+    return { center: 'center', right: 'flex-end' }[tabsAligned(c) ? c.tabsAlign : ''] || 'flex-start';
+  }
+  function tabsAligned(c) {
+    return c.tabsAlign === 'left' || c.tabsAlign === 'center' || c.tabsAlign === 'right';
+  }
   function content(e, c, b, all) {
     var s = '';
     if (e.id === 'tabs') {
@@ -4882,12 +4907,12 @@
         var gbg = c.tabsGroupBgOn && c.tabsGroupBg
           ? '<span style="position:absolute;inset:0;border-radius:' + num(c.tabsGroupCorners) + 'px;background:' + html(c.tabsGroupBg) +
             ';opacity:' + (c.tabsGroupBgOpacity === '' ? 1 : num(c.tabsGroupBgOpacity)) + '"></span>' : '';
-        s = '<div style="display:flex;align-items:center;height:100%"><div style="position:relative;display:inline-flex;align-items:center;height:' + gh +
+        s = '<div style="display:flex;align-items:center;height:100%;justify-content:' + tabsJustify(c) + '"><div style="position:relative;display:inline-flex;align-items:center;height:' + gh +
             'px;padding:0 ' + num(c.tabsGroupPadding) + 'px;white-space:nowrap;font-size:' + fs + 'px;color:' + html(col) + '">' + gbg +
             '<span style="position:relative;display:inline-flex;align-items:center">' + gicon(c.tabsGroupLeft, 'right') + tabsTxt +
             gicon(c.tabsGroupRight, 'left') + '</span></div></div>';
       } else
-        s = '<div style="display:flex;align-items:center;height:100%;white-space:nowrap;font-size:' + fs + 'px;color:' + html(col) + '">' + tabsTxt + '</div>';
+        s = '<div style="display:flex;align-items:center;height:100%;justify-content:' + tabsJustify(c) + ';white-space:nowrap;font-size:' + fs + 'px;color:' + html(col) + '">' + tabsTxt + '</div>';
     } else if (e.icon) {
       /* the icon is centred in its 104x56 box and grows from the centre (searchScale, ...) */
       var sc = num(c[e.icon + 'Scale']) || 1, isz = (num(c.iconSize) || (e.icon === 'profile' ? 44 : 38)) * sc;
@@ -4925,7 +4950,8 @@
       if (!c.hideOriginalName || !c.hidePS5Icon)
         s = '<div style="height:100%;display:flex;align-items:center;gap:10px;font-size:' + 28 * (num(c.tileNameScale) || 1) +
             'px;white-space:nowrap;color:' + html(c.tileNameColor || '#fff') + '">' +
-            (c.hidePS5Icon ? '' : '<b style="font-size:.7em;letter-spacing:1px;opacity:.85">PS5</b>') +
+            (c.hidePS5Icon ? '' : '<b style="flex:none;font-size:.55em;line-height:1;letter-spacing:.5px;padding:3px 6px;border-radius:4px;' +
+                                   'background:' + html(c.tileNameColor || '#fff') + ';color:#000">PS5</b>') +
             (c.hideTileName ? '' : 'Game name') + '</div>';
     } else if (e.id === 'footer') {
       var rf = num(c.footerFontSize) || 28, isz = num(c.footerIconSize) || 40;
