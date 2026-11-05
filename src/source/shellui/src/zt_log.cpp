@@ -159,6 +159,11 @@ void move_rnps_dump() {
 }
 
 void read_debug_flag() {
+  /* the diagnostic build: debug mode with the Settings/Trophies map, always */
+  if (ZT_DIAG) {
+    g_debug = 2;
+    return;
+  }
   char buf[16] = {};
   const int fd = open(kDebugFlag, O_RDONLY);
   if (fd < 0) {
@@ -267,12 +272,15 @@ void zt_log_session_start(const char *fw_text, unsigned fw_hex) {
     if (mark >= 0)
       close(mark);
   }
-  zt_log("==== %s %s (build %d, %s %s) by %s ====", ZT_NAME, ZT_VERSION, ZT_BUILD,
+  zt_log("==== %s%s %s (build %d, %s %s) by %s ====", ZT_NAME, ZT_EDITION, ZT_VERSION, ZT_BUILD,
          __DATE__, __TIME__, ZT_AUTHOR);
   zt_log("PS5: firmware %s (0x%08x) | ShellUI pid %d", g_fw.empty() ? "unknown" : g_fw.c_str(),
          g_fw_hex, (int)getpid());
+  if (g_debug < 0)
+    read_debug_flag();
   zt_log("debug mode: %s | times are UTC, +seconds since this start",
-         g_debug == 2 ? "on (+ Settings/Trophies map)" : g_debug == 1 ? "on" : "off");
+         ZT_DIAG ? "on (diagnostic build: everything is logged)"
+                 : g_debug == 2 ? "on (+ Settings/Trophies map)" : g_debug == 1 ? "on" : "off");
 }
 
 void zt_log_session_end() {

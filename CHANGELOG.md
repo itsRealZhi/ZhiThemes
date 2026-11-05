@@ -4,7 +4,7 @@ Versions go up (0.1.x, 0.2.0…) until 1.0.0.
 
 ## 0.1.0-alpha — first release
 
-Alpha: tested on one PS5, firmware **9.60**. Other firmwares are untested; reports are welcome (see [docs/LOGS.md](docs/LOGS.md)).
+Alpha: made on firmware **9.60**; also seen working on **13.60** by a tester. Other firmwares are untested; reports are welcome (see [docs/LOGS.md](docs/LOGS.md)).
 
 ### Home screen
 - **Tiles:** square 1:1 or vertical 2:3 covers; the focused tile can be vertical 2:3 or *Steam horizontal* 92:43 (like the Steam Deck). Size, gap, corners, shadow, reflection, how many games the row shows.
@@ -36,8 +36,11 @@ Alpha: tested on one PS5, firmware **9.60**. Other firmwares are untested; repor
 - A theme file can only carry values (numbers, true/false, text); a file with code is ignored.
 - **Safe mode:** if the Home crashes twice within 3 minutes the theme turns itself off; a USB drive with an empty `ZhiThemes/no_theme` file keeps it off while plugged in.
 - **Logs tab:** debug mode, logs with firmware, version and timestamps, also saved in `/data/ZhiThemes/Logs/`.
+- **Not together with other HENs that load into the Home:** with etaHEN, OnionHEN, AniketosHEN (or Yoncore, kylin-core, wmdw-jwm, CheatRunner) running, ZhiThemes does not load and tells you why: two of them in the Home crash it.
+- A Home that is still starting (right after a reboot or rest mode) is given time to finish before ZhiThemes loads into it.
+- **Screen dump** (Experimental): saves the code and the screen layout of the PS5's apps to `/data/ZhiThemes/Dumps/<firmware>/`, to help make themes work on other firmwares.
 
 ### Known limits
-- Only tested on firmware 9.60.
+- Made on firmware 9.60; on 13.60 the first load can crash the Home once (error CE-108262-9); it restarts by itself and ZhiThemes loads fine the second time.
 - Loading ZhiThemes many times without restarting the console can use up the Home's memory; from the 4th load in a row the welcome message asks you to restart the PS5.
 - No live blur behind panels; the text colour of Settings rows cannot be changed.

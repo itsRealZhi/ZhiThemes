@@ -458,6 +458,7 @@
     debugBgOpacity: ['Debug box darkness', 'Darkness of the box behind the numbers (0 = no box)'],
     debugRow: ['Debug in one line', 'All the numbers in one line instead of one per line'],
     debugItems: ['Debug items', 'What to show, in this order: fps ram vram shell mono cpu temp fan up loads videos errors'],
+    screenDump: ['Screen dump', 'Experimental: copies the code of the apps (bundles) and writes what each screen is made of (React tree) to /data/ZhiThemes/Dumps/<firmware>. For making themes work on other firmwares: turn it on, open the Home, Media, a game page, the Library, Settings and Trophies, then send that folder'],
     tileAnimOn: ['Animated tiles', 'The focused tile plays its animated picture (an MP4 made here from an animated WebP / APNG / video, Pictures below); the other tiles show its first frame'],
     customTilesOn: ['Custom tiles', 'Games show their picture from /data/ZhiThemes/Assets/customtile: <titleId>_1x1_<n>.png for square tiles, <titleId>_2x3_<n>.png for vertical ones'],
     customTileChoice: ['Custom tile per game', 'Picture each game uses per format (ID/2x3:n or ID/1x1:n; ID:n = both; 0 = its own icon), set below or from the tile\'s Options menu; not listed = picture 1'],
@@ -4455,7 +4456,7 @@
     { id: 'scrAnimations', name: 'Animations', keys: ['#Speed', 'animationSpeed', 'rowSpeed', 'rowFastRepeat', 'rowRepeatWindow',
       '#Tabs', 'animTabs', 'animTabsMs', 'animTabsSlide', 'animFav', '#Names', 'animNames', 'animNamesStyle', 'animNamesMs',
       '#Others', 'animInfo', 'animButtons', 'animFolders', 'animFolderClose', 'animToast', 'animTitleGlow', 'animTitleGlowColor', 'animTitleGlowSec'] },
-    { id: 'scrExperimental', name: 'Experimental', keys: ['tileAnimAll', 'tileAnimAllMax', 'measureScreen'] }
+    { id: 'scrExperimental', name: 'Experimental', keys: ['tileAnimAll', 'tileAnimAllMax', 'measureScreen', 'screenDump'] }
   ];
   /* data fields with their own editors (Folders / Tiles tabs, Options menu) */
   var PANEL_SKIP = /^(folders|foldersIcon|favorites|customTileChoice|customBgChoice|themeName)$/;

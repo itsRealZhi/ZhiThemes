@@ -15,6 +15,7 @@ later version. See LICENSE and NOTICE.  */
 #include "detour.h"
 #include "external_symbols.hpp"
 #include "hooked_funcs.hpp"
+#include "zt_brand.hpp"
 #include "zt_log.hpp"
 #include "zt_stats.hpp"
 #include "theme_default_js.hpp"
@@ -2271,27 +2272,174 @@ std::string logo_sizes_js() {
    this module: going to PS5 default has to put them back */
 bool g_native_themed = false;
 
+/*
+ * Screen dump (theme field screenDump, Experimental): to see what another
+ * firmware's apps are made of. Every app bundle ShellUI starts is copied to
+ * Dumps/<firmware>/ (for hermes-dec on the PC), and each themed app's
+ * theme.js writes its React tree there ("THEME-DUMP <name> <0|1>\n<text>",
+ * 0 = new file, 1 = more of it).
+ */
+std::atomic<bool> g_screen_dump{false};
+std::mutex g_dump_lock;
+std::vector<std::string> g_dump_queue;
+bool g_dump_thread = false;
+
+std::string dump_dir() {
+  std::string fw = zt_fw_text();
+  for (char &c : fw)
+    if (!isalnum((unsigned char)c) && c != '.')
+      c = '_';
+  const std::string dir = std::string(ZT_DIR "/Dumps/") + (fw.empty() ? "unknown" : fw);
+  mkdir(ZT_DIR "/Dumps", 0777);
+  mkdir(dir.c_str(), 0777);
+  return dir;
+}
+
+/* copies one file; false when it could not */
+bool dump_copy(const std::string &from, const std::string &to) {
+  const int in = open(from.c_str(), O_RDONLY);
+  if (in < 0)
+    return false;
+  const std::string part = to + ".part";
+  const int out = open(part.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
+  if (out < 0) {
+    close(in);
+    return false;
+  }
+  std::vector<char> buf(1 << 16);
+  bool ok = true;
+  for (;;) {
+    const ssize_t n = read(in, buf.data(), buf.size());
+    if (n < 0)
+      ok = false;
+    if (n <= 0)
+      break;
+    if (write(out, buf.data(), (size_t)n) != n) {
+      ok = false;
+      break;
+    }
+  }
+  close(in);
+  close(out);
+  if (ok)
+    ok = rename(part.c_str(), to.c_str()) == 0;
+  else
+    unlink(part.c_str());
+  return ok;
+}
+
+void *dump_worker(void *) {
+  for (;;) {
+    std::string from;
+    {
+      std::lock_guard<std::mutex> lock(g_dump_lock);
+      if (g_dump_queue.empty() || g_quit) {
+        g_dump_thread = false;
+        return nullptr;
+      }
+      from = g_dump_queue.front();
+      g_dump_queue.erase(g_dump_queue.begin());
+    }
+    /* /system_ex/rnps/apps/NPXS40002/application.ps.bundle -> NPXS40002_application.ps.bundle */
+    const size_t slash = from.rfind('/');
+    const size_t prev = slash == std::string::npos || slash == 0 ? std::string::npos : from.rfind('/', slash - 1);
+    std::string name = prev == std::string::npos ? from.substr(slash + 1)
+                                                 : from.substr(prev + 1, slash - prev - 1) + "_" + from.substr(slash + 1);
+    for (char &c : name)
+      if (!isalnum((unsigned char)c) && c != '.' && c != '_' && c != '-')
+        c = '_';
+    const std::string to = dump_dir() + "/" + name;
+    struct stat a {}, b {};
+    if (stat(from.c_str(), &a) != 0) {
+      zt_log("dump: %s not readable", from.c_str());
+      continue;
+    }
+    if (stat(to.c_str(), &b) == 0 && b.st_size == a.st_size)
+      continue;
+    const bool ok = dump_copy(from, to);
+    zt_log("dump: bundle %s -> %s (%ld KB)%s", from.c_str(), to.c_str(), (long)(a.st_size >> 10),
+           ok ? "" : " FAILED");
+  }
+}
+
+/* a bundle ShellUI starts: copied in the background (once per size) */
+void dump_bundle(const std::string &path) {
+  if (!g_screen_dump || path.empty() || path[0] != '/' || path.find("..") != std::string::npos)
+    return;
+  std::lock_guard<std::mutex> lock(g_dump_lock);
+  static std::vector<std::string> seen;
+  if (std::find(seen.begin(), seen.end(), path) != seen.end())
+    return;
+  seen.push_back(path);
+  g_dump_queue.push_back(path);
+  if (g_dump_thread)
+    return;
+  pthread_t t;
+  if (pthread_create(&t, nullptr, dump_worker, nullptr) == 0) {
+    pthread_detach(t);
+    g_dump_thread = true;
+  }
+}
+
+/* "THEME-DUMP <name> <0|1>\n<text>" from theme.js */
+void dump_text(const std::string &text) {
+  const size_t nl = text.find('\n');
+  if (!g_screen_dump || nl == std::string::npos || nl <= 11)
+    return;
+  const std::string head = text.substr(11, nl - 11);
+  const size_t sp = head.find(' ');
+  if (sp == std::string::npos || sp == 0 || sp > 48)
+    return;
+  const std::string name = head.substr(0, sp);
+  for (char c : name)
+    if (!isalnum((unsigned char)c) && c != '-' && c != '_')
+      return;
+  const bool append = head.compare(sp + 1, 1, "1") == 0;
+  const std::string path = dump_dir() + "/" + name + ".txt";
+  const int fd = open(path.c_str(), O_WRONLY | O_CREAT | (append ? O_APPEND : O_TRUNC), 0666);
+  if (fd < 0)
+    return;
+  (void)!write(fd, text.data() + nl + 1, text.size() - nl - 1);
+  close(fd);
+  if (!append)
+    zt_log("dump: screen tree %s", path.c_str());
+}
+
 void eval_theme(MonoObject *self, const char *app, unsigned hub_id = 0) {
   /* ZhiThemes off (PS5 default / USB safe mode / no theme): the other apps
      get nothing; the Home gets theme.js with __ztStock, which only adds
      Options menu > ZhiThemes */
-  const bool stock = zt_stock_on();
+  /* the diagnostic build with no theme: every app runs the factory theme
+     (close to stock) so its screen map, debug panel and dump work; the
+     native parts (colours, font, frame) are left alone */
+  const bool diag_plain = ZT_DIAG && zt_stock_on();
+  const bool stock = zt_stock_on() && !ZT_DIAG;
+  if (diag_plain)
+    zt_log("js: diagnostic build, no theme: %s gets the factory theme for the diagnostics", app);
   if (stock && strcmp(app, "home") != 0) {
     zt_log("js: ZhiThemes off (PS5 default); %s left stock", app);
     return;
   }
   if (stock)
     zt_log("js: ZhiThemes off (PS5 default): Home gets only the Options menu item");
-  const std::string script = stock ? std::string(kThemeDefaultJs) : merged_script();
+  const std::string script = stock || diag_plain ? std::string(kThemeDefaultJs) : merged_script();
+  /* the Home starts first: its theme decides the dump for the next bundles */
+  if (strcmp(app, "home") == 0) {
+    /* the diagnostic build dumps always */
+    const bool dump = ZT_DIAG || (!stock && zt_theme_number(script, "screenDump", 0) != 0);
+    if (dump != g_screen_dump.load())
+      zt_log("dump: screen dump %s (Dumps/%s)", dump ? "on" : "off", zt_fw_text().c_str());
+    g_screen_dump = dump;
+  }
   /* off and nothing changed yet: no native part is touched at all (the
      factory values are 9.60 ones). Off after a theme: the factory values
      put back what that theme changed */
-  if (strcmp(app, "home") == 0 && (!stock || g_native_themed)) {
+  if (strcmp(app, "home") == 0 && ((!stock && !diag_plain) || g_native_themed)) {
     apply_focus_color(script);
     apply_system_font(script);
     /* avatar, panel tint, icon tint, token log */
     zt_native_apply(script);
-    g_native_themed = !stock;
+    g_native_themed = !stock && !diag_plain;
   }
   if (script.empty()) {
     zt_log("js: %s missing or empty; %s left stock", zt_theme_file().c_str(), app);
@@ -2300,6 +2448,7 @@ void eval_theme(MonoObject *self, const char *app, unsigned hub_id = 0) {
   const std::string source = std::string("globalThis.__themeApp = \"") + app +
                              "\";\nglobalThis.__ztHubId = " + std::to_string(hub_id) + ";\n" +
                              "globalThis.__ztStock = " + (stock ? "true" : "false") + ";\n" +
+                             "globalThis.__ztDiag = " + std::string(ZT_DIAG ? "true" : "false") + ";\n" +
                              "globalThis.__ztFonts = " + font_table() + ";\n" +
                              "globalThis.__ztUser = " + ascii_js(user_name_js()) + ";\n" +
                              /* Logs tab: debug mode (logs/debug.on) */
@@ -2787,6 +2936,7 @@ void RunScript_Hook(MonoObject *self, MonoObject *bundle) {
   }
   if (app)
     eval_theme(self, app, hub_id);
+  dump_bundle(id);
   g_run_script_orig(self, bundle);
 }
 
@@ -3080,6 +3230,10 @@ bool rename_begin() {
 void ConsoleLog_Hook(MonoString *msg, int level, void *error, void *userarg) {
   if (msg && !g_quit) {
     const std::string text = Mono_to_String(msg);
+    if (text.rfind("THEME-DUMP ", 0) == 0) {
+      dump_text(text);
+      return;
+    }
     if (text.rfind("THEME-NAME ", 0) == 0) {
       std::lock_guard<std::mutex> lock(g_name_lock);
       g_hub_name = text.substr(11);
@@ -3413,22 +3567,31 @@ std::string theme_system_font(const char *sst_name) {
 __attribute__((weak)) int theme_psm_names(int) { return 0; }
 
 
+/* prx.cpp: one boot.log line per start-up step (diagnostic build) */
+void zt_boot_fine(const char *step);
+
 void install_homeui_js_hooks(MonoImage *react_pui, MonoImage *pui) {
   g_pui = pui;
   zt_native_install(pui);
+  zt_boot_fine("js: native install");
   if (!react_pui) {
     zt_log("js: ReactNative.PUI image missing; no theme script");
     return;
   }
   /* Assets/, Themes/<Name>/, active theme (before anything reads the theme) */
   zt_storage_migrate();
+  zt_boot_fine("js: storage migrate");
   write_default_script();
+  zt_boot_fine("js: default script");
   /* one folder per kind (wallpapers, icons, folders, cache/...) */
   zt_storage_setup();
+  zt_boot_fine("js: storage setup");
   /* themes copied to Install/ */
   zt_install_dropped();
+  zt_boot_fine("js: install folder");
   /* textures of the built-in particle styles */
   zt_particles_install();
+  zt_boot_fine("js: particles");
   /* the frame images of ZhiThemes 21 (molduraExtra, removed; files "moldura-*.png") */
   if (DIR *d = opendir(ZT_DIR)) {
     while (dirent *e = readdir(d))
@@ -3436,8 +3599,10 @@ void install_homeui_js_hooks(MonoImage *react_pui, MonoImage *pui) {
         unlink((std::string(ZT_DIR "/") + e->d_name).c_str());
     closedir(d);
   }
+  zt_boot_fine("js: old frame files");
 
   g_executor_class = mono_class_from_name(react_pui, kNamespace, kClass);
+  zt_boot_fine("js: executor class");
   if (!g_executor_class) {
     zt_log("js: %s.%s not found", kNamespace, kClass);
     return;
@@ -3447,6 +3612,7 @@ void install_homeui_js_hooks(MonoImage *react_pui, MonoImage *pui) {
   g_name_field = mono_class_get_field_from_name(g_executor_class, "_name");
   const uint64_t run_script =
       Get_Address_of_Method(react_pui, kNamespace, kClass, "RunScript", 1);
+  zt_boot_fine("js: methods found");
   if (!g_eval_script || !run_script) {
     zt_log("js: EvalScript(2)=%p RunScript(1)=0x%lx; no theme script",
                    (void *)g_eval_script, (unsigned long)run_script);
@@ -3456,6 +3622,7 @@ void install_homeui_js_hooks(MonoImage *react_pui, MonoImage *pui) {
   const bool run_hooked = zt_hook(
       run_script, reinterpret_cast<void *>(&RunScript_Hook),
       reinterpret_cast<void **>(&g_run_script_orig));
+  zt_boot_fine("js: RunScript hook");
 
   const uint64_t console_log =
       Get_Address_of_Method(react_pui, kNamespace, kClass, "ConsoleLog", 4);
@@ -3463,6 +3630,7 @@ void install_homeui_js_hooks(MonoImage *react_pui, MonoImage *pui) {
       console_log &&
       zt_hook(console_log, reinterpret_cast<void *>(&ConsoleLog_Hook),
                     reinterpret_cast<void **>(&g_console_log_orig));
+  zt_boot_fine("js: ConsoleLog hook");
 
   zt_log("js: hooks RunScript=%d ConsoleLog=%d name_field=%d",
                  (int)run_hooked, (int)log_hooked, g_name_field != nullptr);

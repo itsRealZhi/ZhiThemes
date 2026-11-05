@@ -11,7 +11,12 @@ onion_output_dirs()
 set(D_SRC ${D_CWD}/source)
 
 add_executable(${PROJECT_NAME})
-set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "ZhiThemes.elf")
+if(ZT_DIAG)
+	set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "ZhiThemes-diag.elf")
+	target_compile_definitions(${PROJECT_NAME} PRIVATE ZT_DIAG=1)
+else()
+	set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "ZhiThemes.elf")
+endif()
 
 target_compile_options(${PROJECT_NAME} PUBLIC
 	$<$<COMPILE_LANGUAGE:C>:${C_DEFS} ${C_FLAGS}>
@@ -34,11 +39,12 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 onion_target_debug_define(${PROJECT_NAME})
 target_include_directories(${PROJECT_NAME} PRIVATE
 	"${PROJECT_ROOT}/libonion_proc/include"
+	"${PROJECT_ROOT}/libonion_conflict/include"
 	"${PROJECT_ROOT}/libonion_platform/include"
 	"${PROJECT_ROOT}/include"
 )
 target_link_directories(${PROJECT_NAME} PUBLIC "${ONIONHEN_PS5_STUB_DIR}")
-add_dependencies(${PROJECT_NAME} zt_shellui NineS onion_proc onion_platform onion_elfldr)
-target_link_libraries(${PROJECT_NAME} PUBLIC NineS onion_elfldr onion_proc onion_platform SceSystemService SceNotification kernel_sys)
+add_dependencies(${PROJECT_NAME} zt_shellui NineS onion_proc onion_platform onion_elfldr onion_conflict)
+target_link_libraries(${PROJECT_NAME} PUBLIC NineS onion_elfldr onion_conflict onion_proc onion_platform SceSystemService SceNotification kernel_sys)
 
 onion_strip_debug(${PROJECT_NAME})

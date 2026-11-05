@@ -4,7 +4,7 @@
 
 ZhiThemes changes how the PS5 Home looks: tile size and shape (square or vertical 2:3 covers), the focus frame, fonts, colours, wallpapers (images or `.mp4` video), game folders, custom covers and backgrounds per game, the Settings and Trophies screens, and more. You change everything from a web editor on your PC or phone. No system file is changed: everything happens in memory, and a reboot puts the stock PS5 back.
 
-> **Alpha** (0.1.x). Tested on firmware **9.60**. Other firmwares are untested. If you try one, please send a debug log (see [docs/LOGS.md](docs/LOGS.md)).
+> **Alpha** (0.1.x). Made on firmware **9.60**, also seen working on **13.60**. Other firmwares are untested. If you try one, please send a debug log (see [docs/LOGS.md](docs/LOGS.md)).
 
 ## What you need
 

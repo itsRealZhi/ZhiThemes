@@ -94,6 +94,11 @@ target_compile_options(zt_shellui PUBLIC
 	$<$<COMPILE_LANGUAGE:ASM>:${ASM_FLAGS}>
 )
 target_compile_definitions(zt_shellui PRIVATE ZHITHEMES=1)
+# ZT_DIAG=ON: the diagnostic module/payload (ZhiThemes-diag.elf, see zt_brand.hpp)
+option(ZT_DIAG "ZhiThemes diagnostic build" OFF)
+if(ZT_DIAG)
+	target_compile_definitions(zt_shellui PRIVATE ZT_DIAG=1)
+endif()
 target_link_options(zt_shellui PRIVATE "-Wl,--gc-sections" "-Wl,--icf=safe")
 # ZhiThemes module with only the theme's files. An older build with
 # such a list crashed ShellUI: __sys_regmgr_call was only defined in

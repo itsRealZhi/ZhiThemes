@@ -535,6 +535,7 @@
     debugBgOpacity: 0.55,    /* debug panel: darkness of the box behind (0 = none) (0.55) */
     debugRow: false,         /* debug panel: all in one line instead of one per line (false) */
     debugItems: 'fps ram vram shell mono cpu temp fan up loads videos', /* debug panel: what to show, in this order ('fps ram vram shell mono cpu temp fan up loads videos') */
+    screenDump: false,       /* screen dump: the apps' bundles and screen trees go to /data/ZhiThemes/Dumps/<firmware> (for other firmwares) (false) */
     /* --- folders --- */
     /* game folders in the row, 'Name: ID1, ID2; Other|icon.png|position: ID3'
        (made in the editor's Folders tab). With the folder selected its games show
@@ -586,6 +587,14 @@
      sys = also what Settings and Trophies are made of (slow) */
   var DEBUG = globalThis.__ztDebug || {};
   DEBUG = { on: !!DEBUG.on, sys: !!(DEBUG.on && DEBUG.sys) };
+  /* the diagnostic build (ZhiThemes-diag.elf): the screen map, the debug
+     panel and the screen dump are always on, whatever the theme says */
+  if (globalThis.__ztDiag) {
+    DEBUG = { on: true, sys: true };
+    THEME.measureScreen = true;
+    THEME.debugOverlay = true;
+    THEME.screenDump = true;
+  }
   /* Settings and Trophies: only the "system screens" fields */
   var SYS_APP = APP === 'settings' || APP === 'trophy';
 
@@ -610,6 +619,106 @@
     if (T.done[name]) return;
     T.done[name] = true;
     log('applied: ' + name);
+  }
+
+  /* ---- screen dump (Experimental, screenDump) ----
+     What this firmware's app is made of, for making the theme work on it:
+     React's devtools hook (set before the app's bundle runs) hands over the
+     root of every render; ~10 s after the screen settles the whole tree
+     (components, testIDs, a few props and style values, texts) goes to
+     Dumps/<firmware>/<app>-<n>.txt through "THEME-DUMP". Up to 6 dumps per
+     app, a new one only when the screen changed. The C++ also copies the
+     app bundles there. */
+  /* the diagnostic build (ZhiThemes-diag.elf) dumps always, even with no theme */
+  if ((THEME.screenDump || globalThis.__ztDiag) && (!STOCK || globalThis.__ztDiag) &&
+      typeof globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__ === 'undefined') {
+    (function () {
+      var root = null, timer = null, count = 0, lastSig = '';
+      var STYLE_KEYS = ['position', 'left', 'top', 'right', 'bottom', 'width', 'height', 'flexDirection',
+        'justifyContent', 'alignItems', 'opacity', 'backgroundColor', 'color', 'fontSize', 'transform'];
+      function dumpTypeName(f) {
+        var t = f.type;
+        if (typeof t === 'string') return t;
+        if (!t) return f.tag === 6 ? '#text' : '#' + f.tag;
+        if (typeof t === 'function') return t.displayName || t.name || 'fn';
+        if (typeof t === 'object') {
+          if (t.displayName) return t.displayName;
+          if (t.render) return 'forwardRef(' + (t.render.displayName || t.render.name || '') + ')';
+          if (t.type) return 'memo(' + (t.type.displayName || t.type.name || '') + ')';
+          if (t._context) return 'Context';
+          if (t.$$typeof) return 'Provider';
+        }
+        return '?';
+      }
+      function dumpFlat(s, out) {
+        if (!s || typeof s !== 'object') return out;
+        if (Array.isArray(s)) { for (var i = 0; i < s.length; i++) dumpFlat(s[i], out); return out; }
+        for (var k in s) out[k] = s[k];
+        return out;
+      }
+      function short(v) {
+        try {
+          var s = typeof v === 'string' ? JSON.stringify(v) : JSON.stringify(v);
+          if (s === undefined) s = String(v);
+          return s.length > 80 ? s.slice(0, 77) + '...' : s;
+        } catch (e) { return '?'; }
+      }
+      function line(f, depth) {
+        var p = f.memoizedProps, out = new Array(Math.min(depth, 60) + 1).join(' ') + dumpTypeName(f);
+        if (f.tag === 6) return out + ' ' + short(p);
+        if (!p || typeof p !== 'object') return out;
+        if (f.key != null) out += ' key=' + short(f.key);
+        ['testID', 'nativeID', 'accessibilityLabel', 'id', 'name', 'title', 'label', 'iconId', 'source', 'uri'].forEach(function (k) {
+          if (p[k] != null && typeof p[k] !== 'function' && typeof p[k] !== 'object') out += ' ' + k + '=' + short(p[k]);
+        });
+        if (typeof p.children === 'string' || typeof p.children === 'number') out += ' text=' + short(p.children);
+        if (p.style) {
+          var st = dumpFlat(p.style, {}), parts = [];
+          STYLE_KEYS.forEach(function (k) { if (st[k] != null) parts.push(k + ':' + short(st[k])); });
+          if (parts.length) out += ' {' + parts.join(' ') + '}';
+        }
+        var keys = Object.keys(p).filter(function (k) { return k !== 'children' && k !== 'style'; });
+        if (keys.length) out += ' props[' + keys.slice(0, 14).join(',') + (keys.length > 14 ? ',+' + (keys.length - 14) : '') + ']';
+        return out;
+      }
+      function dump() {
+        timer = null;
+        if (!root || !root.current || count >= 6) return;
+        var lines = [], names = {}, stack = [[root.current, 0]];
+        while (stack.length && lines.length < 40000) {
+          var e = stack.pop(), f = e[0];
+          lines.push(line(f, e[1]));
+          names[dumpTypeName(f)] = 1;
+          if (f.sibling) stack.push([f.sibling, e[1]]);
+          if (f.child) stack.push([f.child, e[1] + 1]);
+        }
+        var sig = lines.length + ':' + Object.keys(names).length;
+        if (sig === lastSig) return;
+        lastSig = sig;
+        count++;
+        var name = APP + '-' + count, head = '# ' + APP + ' screen tree ' + count + ', ' + lines.length +
+          ' fibers, ' + Object.keys(names).length + ' kinds, ' + new Date().toISOString() + '\n';
+        var text = head + lines.join('\n') + '\n';
+        for (var i = 0, part = 0; i < text.length; i += 12000, part++)
+          console.log('THEME-DUMP ' + name + ' ' + (part ? 1 : 0) + '\n' + text.slice(i, i + 12000));
+        log('screen dump ' + name + ': ' + lines.length + ' fibers');
+      }
+      globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+        supportsFiber: true,
+        renderers: new Map(),
+        inject: function () { return 1; },
+        checkDCE: function () {},
+        onCommitFiberUnmount: function () {},
+        onPostCommitFiberRoot: function () {},
+        onCommitFiberRoot: function (id, r) {
+          root = r;
+          if (count >= 6 || typeof setTimeout !== 'function') return;
+          if (timer) clearTimeout(timer);
+          timer = setTimeout(function () { try { dump(); } catch (e) { log('screen dump failed: ' + e); } }, 10000);
+        }
+      };
+      log('screen dump on');
+    })();
   }
 
   /* ---- option values: English, with the old Portuguese ones still accepted ---- */

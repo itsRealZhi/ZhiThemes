@@ -21,12 +21,16 @@ later version. See LICENSE and NOTICE.  */
  * (zhithemes.log from the module, payload.log from this payload).
  */
 
+#include <onion/conflict.h>
 #include <onion/proc_query.h>
+#include <ps5/kernel.h>
 
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <ctype.h>
+#include <stddef.h>
+#include <sys/proc.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -41,6 +45,7 @@ later version. See LICENSE and NOTICE.  */
 #include <sys/stat.h>
 #include <sys/sysctl.h>
 #include <sys/time.h>
+#include <sys/user.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -359,10 +364,215 @@ int count_injection(pid_t shellui) {
   return (int)count;
 }
 
+long long now_ms() {
+  struct timeval tv = {};
+  gettimeofday(&tv, nullptr);
+  return (long long)tv.tv_sec * 1000 + tv.tv_usec / 1000;
+}
+
+/* kinfo_proc entries of a process (one per thread with threads=true). The
+   PS5's entries can be bigger than the SDK's struct: each is stepped by its
+   own ki_structsize, only the SDK's fields are read. */
+std::string proc_entries(pid_t pid, bool threads) {
+  int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID | (threads ? KERN_PROC_INC_THREAD : 0), (int)pid};
+  size_t len = 0;
+  if (sysctl(mib, 4, nullptr, &len, nullptr, 0) != 0 || len == 0)
+    return std::string();
+  std::string buf(len + 4096, '\0');
+  len = buf.size();
+  if (sysctl(mib, 4, &buf[0], &len, nullptr, 0) != 0)
+    return std::string();
+  buf.resize(len);
+  return buf;
+}
+
+template <typename F> void each_entry(const std::string &buf, F f) {
+  size_t at = 0;
+  while (at + sizeof(int) <= buf.size()) {
+    int size = 0;
+    memcpy(&size, buf.data() + at, sizeof(int));
+    if (size < (int)offsetof(struct kinfo_proc, ki_tid) + 4 || at + (size_t)size > buf.size())
+      break;
+    struct kinfo_proc kp;
+    memset(&kp, 0, sizeof(kp));
+    memcpy(&kp, buf.data() + at, (size_t)size < sizeof(kp) ? (size_t)size : sizeof(kp));
+    f(kp);
+    at += (size_t)size;
+  }
+}
+
+/* seconds since the ShellUI process started (-1 when unknown) */
+long shellui_age(pid_t pid) {
+  long start = 0;
+  each_entry(proc_entries(pid, false), [&](const struct kinfo_proc &kp) {
+    if (!start)
+      start = (long)kp.ki_start.tv_sec;
+  });
+  return start > 0 ? (long)time(nullptr) - start : -1;
+}
+
+/* "48 threads: run 2 sleep 45 stop 1 | flags traced stopped | umtxn 20,
+   ipcwait 6, ..." : how ShellUI's threads are right now */
+std::string shellui_threads(pid_t pid) {
+  int total = 0, run = 0, sleep_ = 0, stop = 0, other = 0;
+  long flags = 0;
+  std::string waits[64];
+  int counts[64] = {};
+  int kinds = 0;
+  each_entry(proc_entries(pid, true), [&](const struct kinfo_proc &kp) {
+    ++total;
+    flags |= kp.ki_flag;
+    if (kp.ki_stat == SRUN)
+      ++run;
+    else if (kp.ki_stat == SSLEEP)
+      ++sleep_;
+    else if (kp.ki_stat == SSTOP)
+      ++stop;
+    else
+      ++other;
+    char w[WMESGLEN + 1] = {};
+    memcpy(w, kp.ki_wmesg, WMESGLEN);
+    const std::string wm = w[0] ? w : "-";
+    int i = 0;
+    while (i < kinds && waits[i] != wm)
+      ++i;
+    if (i == kinds && kinds < 64)
+      waits[kinds++] = wm;
+    if (i < 64)
+      ++counts[i];
+  });
+  if (!total)
+    return "gone";
+  char head[160];
+  snprintf(head, sizeof(head), "%d threads: run %d sleep %d stop %d other %d |%s%s%s |", total, run,
+           sleep_, stop, other, (flags & P_TRACED) ? " traced" : "",
+           (flags & P_STOPPED) ? " stopped" : "", (flags & (P_TRACED | P_STOPPED)) ? "" : " -");
+  std::string out = head;
+  for (int i = 0; i < kinds; ++i)
+    out += " " + waits[i] + " " + std::to_string(counts[i]) + (i + 1 < kinds ? "," : "");
+  return out;
+}
+
+/* the first seconds after an injection: ShellUI's threads whenever they
+   change (an old ShellUI froze right after the module started on 13.60) */
+void watch_shellui(pid_t pid, int seconds) {
+  std::string last;
+  const long long end = now_ms() + seconds * 1000LL;
+  int step = 0;
+  while (now_ms() < end) {
+    const std::string now = shellui_threads(pid);
+    if (now != last) {
+      logf("ShellUI pid %d +%lld ms: %s", pid, now_ms() - (end - seconds * 1000LL), now.c_str());
+      last = now;
+    }
+    if (now == "gone" || onion_find_pid("SceShellUI") != pid)
+      return;
+    usleep(step++ < 20 ? 100 * 1000 : 1000 * 1000);
+  }
+}
+
+/* Another HEN or payload that puts its own module into ShellUI (etaHEN,
+   OnionHEN, AniketosHEN, ...): two modules in one ShellUI crash it, so
+   ZhiThemes does not go in (OnionHEN and AniketosHEN refuse etaHEN the
+   same way). Returns its name, or nullptr. */
+const char *foreign_payload() {
+  if (const char *c = onion_conflict_detect())
+    return c;
+  /* OnionHEN / AniketosHEN: their module also lives in ShellUI */
+  static const char *const kOnion[] = {"onion_daemon.elf", "onion_util.elf",
+                                       "onion_daemon", "onion_util"};
+  for (const char *name : kOnion)
+    if (onion_find_pid(name) > 0)
+      return "OnionHEN / AniketosHEN";
+  return nullptr;
+}
+
+bool sprx_loaded(pid_t pid, const char *name) {
+  uint32_t handle = (uint32_t)-1;
+  return kernel_dynlib_handle(pid, name, &handle) == 0 && handle != (uint32_t)-1;
+}
+
+/* A ShellUI that is still starting: wait until it has its trophy modules
+   (kstuff patches ShellUI once they are in), then 10 s more. A ShellUI that
+   is up is not kept waiting (same rule as AniketosHEN). False when that
+   ShellUI is gone meanwhile. */
+bool wait_shellui_started(pid_t pid) {
+  static const char *const kReady[] = {"libSceNpTrophy.sprx", "libSceNpTrophy2.sprx"};
+  bool waited = false;
+  for (const char *name : kReady) {
+    int i = 0;
+    for (; i < 60 && !sprx_loaded(pid, name); ++i) {
+      if (onion_find_pid("SceShellUI") != pid)
+        return false;
+      waited = true;
+      usleep(500 * 1000);
+    }
+    if (i == 60)
+      logf("ShellUI pid %d: %s still missing after 30 s", pid, name);
+  }
+  if (waited) {
+    logf("ShellUI pid %d was still starting; waiting 10 s more", pid);
+    sleep(10);
+    if (onion_find_pid("SceShellUI") != pid)
+      return false;
+  }
+  return true;
+}
+
+/* stop when another HEN's module would share ShellUI with ours */
+bool refuse_foreign(const char *when) {
+  const char *other = foreign_payload();
+  if (!other)
+    return false;
+  logf("%s: %s is running, not injecting (two modules in ShellUI crash it)", when, other);
+  notify("ZhiThemes can't run together with %s.\n"
+         "Restart the PS5 and load ZhiThemes without it.", other);
+  return true;
+}
+
+/* diagnostic build: every process running (pid, name, threads), to see
+   which HEN, payloads and system services are there */
+void log_processes() {
+  int mib[3] = {CTL_KERN, KERN_PROC, KERN_PROC_PROC};
+  size_t len = 0;
+  if (sysctl(mib, 3, nullptr, &len, nullptr, 0) != 0 || !len)
+    return;
+  std::string buf(len + 8192, '\0');
+  len = buf.size();
+  if (sysctl(mib, 3, &buf[0], &len, nullptr, 0) != 0)
+    return;
+  buf.resize(len);
+  std::string line;
+  int count = 0;
+  each_entry(buf, [&](const struct kinfo_proc &kp) {
+    char name[COMMLEN + 1] = {};
+    memcpy(name, kp.ki_comm, COMMLEN);
+    char item[64];
+    snprintf(item, sizeof(item), "%d %s (%d)", (int)kp.ki_pid, name, kp.ki_numthreads);
+    line += (line.empty() ? "" : ", ") + std::string(item);
+    ++count;
+    if (line.size() > 400) {
+      logf("diag: processes: %s", line.c_str());
+      line.clear();
+    }
+  });
+  if (!line.empty())
+    logf("diag: processes: %s", line.c_str());
+  logf("diag: %d processes", count);
+}
+
 /* returns the injection number in this ShellUI (0 = failed) */
 int inject(pid_t shellui) {
+  logf("ShellUI pid %d up for %ld s; injecting", shellui, shellui_age(shellui));
+  if (ZT_DIAG)
+    logf("ShellUI pid %d before: %s", shellui, shellui_threads(shellui).c_str());
+  const long long t0 = now_ms();
   const bool ok = Inject_Toolbox((int)shellui, zt_shellui_elf_start);
-  logf("inject into SceShellUI pid %d: %s", shellui, ok ? "ok" : "FAILED");
+  logf("inject into SceShellUI pid %d: %s (%lld ms)", shellui, ok ? "ok" : "FAILED",
+       now_ms() - t0);
+  /* diagnostic build: is that ShellUI running, stuck or stopped afterwards */
+  if (ZT_DIAG)
+    watch_shellui(shellui, 20);
   if (!ok)
     return 0;
   const int n = count_injection(shellui);
@@ -379,8 +589,10 @@ int main() {
   /* logs/ is now Logs/ (the module moves what is left) */
   rename("/user/data/ZhiThemes/logs", "/user/data/ZhiThemes/Logs");
   mkdir("/user/data/ZhiThemes/Logs", 0777);
-  logf("%s %s (build %d) by %s: payload start (pid %d)", ZT_NAME, ZT_VERSION, ZT_BUILD,
+  logf("%s%s %s (build %d) by %s: payload start (pid %d)", ZT_NAME, ZT_EDITION, ZT_VERSION, ZT_BUILD,
        ZT_AUTHOR, getpid());
+  if (ZT_DIAG)
+    log_processes();
   stop_previous_watcher();
 
   pid_t shellui = onion_find_pid("SceShellUI");
@@ -388,10 +600,20 @@ int main() {
     notify("ZhiThemes: SceShellUI not found");
     return 1;
   }
+  if (refuse_foreign("start"))
+    return 1;
   if (!replace_running_module()) {
     notify("ZhiThemes: an older theme (OnionHEN) is active.\n"
            "Reboot without it, then send ZhiThemes again.");
     return 1;
+  }
+  if (!wait_shellui_started(shellui)) {
+    shellui = onion_find_pid("SceShellUI");
+    logf("ShellUI restarted while starting; now pid %d", shellui);
+    if (shellui <= 0 || !wait_shellui_started(shellui)) {
+      notify("ZhiThemes: SceShellUI not ready");
+      return 1;
+    }
   }
   const int loads = inject(shellui);
   if (!loads) {
@@ -419,6 +641,9 @@ int main() {
   notify("Welcome to ZhiThemes %s by %s! \xF0\x9F\x8E\xA8\nOpen %s:%d to manage your themes.\n%s%s",
          ZT_VERSION, ZT_AUTHOR, ip.empty() ? "the console's IP" : ip.c_str(), kPort,
          loading.c_str(), extra);
+  if (ZT_DIAG)
+    notify("ZhiThemes DIAGNOSTIC build: everything goes to /data/ZhiThemes/Logs and Dumps.\n"
+           "Use the normal ZhiThemes.elf for everyday use.");
 
   /* ShellUI restarts (rest mode, crashes): inject again into the new one.
      Safe mode: two restarts within 3 minutes look like the theme crashing
@@ -460,6 +685,10 @@ int main() {
       logf("module already running ('%s'), not injecting", running.substr(0, 80).c_str());
       continue;
     }
+    if (refuse_foreign("restart"))
+      return 0;
+    if (!wait_shellui_started(shellui))
+      continue;
     (void)inject(shellui);
   }
   return 0;

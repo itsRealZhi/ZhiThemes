@@ -26,6 +26,7 @@ along with this program; see the file COPYING. If not, see
 #include "plugin_ui_bridge_client.hpp"
 #include "proc.h"
 #include "ps5/kernel.h"
+#include "zt_brand.hpp"
 #include "zt_log.hpp"
 #include "zt_stats.hpp"
 #include "theme_web.hpp"
@@ -43,6 +44,7 @@ along with this program; see the file COPYING. If not, see
 #include <cstdint>
 #include <dirent.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <string>
@@ -109,7 +111,12 @@ int KillAppWithReason_Hook(int appId, int reason);
 /* logs/boot.log, one line per start-up step written straight to the
    file (small buffer, no lock): when ShellUI dies before the log is up, its
    last line says where. */
-void zt_boot(const char *step) {
+namespace {
+/* last step written, for the heartbeat lines (always a string literal) */
+std::atomic<const char *> g_boot_step{"none"};
+}
+
+static void zt_boot_write(const char *step, int alive) {
 #if defined(ZHITHEMES) && ZHITHEMES
   mkdir("/user/data/ZhiThemes", 0777);
   mkdir("/user/data/ZhiThemes/Logs", 0777); /* (logs/ before) */
@@ -119,13 +126,60 @@ void zt_boot(const char *step) {
   const int fd = open(path, O_WRONLY | O_CREAT | (big ? O_TRUNC : O_APPEND), 0666);
   if (fd < 0)
     return;
-  char line[128];
-  const int n = snprintf(line, sizeof(line), "%ld pid %d: %s\n", (long)time(nullptr), (int)getpid(), step);
+  char line[160];
+  struct timespec ts {};
+  clock_gettime(CLOCK_REALTIME, &ts);
+  const int n = alive > 0
+                    ? snprintf(line, sizeof(line), "%ld.%03ld pid %d: alive %d s (last step: %s)\n",
+                               (long)ts.tv_sec, ts.tv_nsec / 1000000, (int)getpid(), alive, step)
+                    : snprintf(line, sizeof(line), "%ld.%03ld pid %d: %s\n", (long)ts.tv_sec,
+                               ts.tv_nsec / 1000000, (int)getpid(), step);
   if (n > 0)
     (void)!write(fd, line, (size_t)n < sizeof(line) ? (size_t)n : sizeof(line) - 1);
   close(fd);
 #else
   (void)step;
+  (void)alive;
+#endif
+}
+
+void zt_boot(const char *step) {
+  g_boot_step.store(step);
+  zt_boot_write(step, 0);
+}
+
+/* the finer steps: only in the diagnostic build */
+void zt_boot_fine(const char *step) {
+  if (ZT_DIAG)
+    zt_boot(step);
+}
+
+/* first line of the module, before main(): tells "never ran" apart from
+   "died in the start" when an injection takes ShellUI down */
+#if ZT_DIAG
+__attribute__((constructor)) static void zt_boot_constructor() {
+  zt_boot("module loaded (constructor)");
+}
+#endif
+
+/* heartbeat: one boot.log line a second for the first minute. If the lines
+   go on until ShellUI dies, the start is stuck at the last step (and the
+   system kills ShellUI); if they stop at once, it crashed in that step. */
+[[maybe_unused]] static void *zt_boot_heartbeat(void *) {
+  for (int s = 1; s <= 60; ++s) {
+    sleep(1);
+    zt_boot_write(g_boot_step.load(), s);
+  }
+  return nullptr;
+}
+
+static void zt_boot_heartbeat_start() {
+#if defined(ZHITHEMES) && ZHITHEMES && ZT_DIAG
+  pthread_t t;
+  if (pthread_create(&t, nullptr, zt_boot_heartbeat, nullptr) == 0)
+    pthread_detach(t);
+  else
+    zt_boot("heartbeat thread failed");
 #endif
 }
 
@@ -232,6 +286,7 @@ MonoImage* require_dll(const char* name) {
 
 bool resolve_native_symbols(pid_t pid) {
   int libkernelsys = get_module_handle(pid, "libkernel_sys.sprx");
+  zt_boot_fine("native: libkernel_sys handle");
   KERNEL_DLSYM(libkernelsys, sceKernelDebugOutText);
   KERNEL_DLSYM(libkernelsys, sceKernelMkdir);
   KERNEL_DLSYM(libkernelsys, scePthreadCreate);
@@ -255,6 +310,7 @@ bool resolve_native_symbols(pid_t pid) {
   });
 #endif
 
+  zt_boot_fine("native: libkernel_sys symbols");
   KERNEL_DLSYM(libSceKernelHandle, sceKernelJitCreateSharedMemory);
   KERNEL_DLSYM(libSceKernelHandle, sceKernelJitCreateAliasOfSharedMemory);
   KERNEL_DLSYM(libSceKernelHandle, sceKernelJitMapSharedMemory);
@@ -269,6 +325,7 @@ bool resolve_native_symbols(pid_t pid) {
     ptr_syscall = getpid + kSyscallInstrOffset;
   }
 
+  zt_boot_fine("native: libkernel symbols");
   int shellui_util = get_module_handle(pid, "libSceShellUIUtil.sprx");
   KERNEL_DLSYM(shellui_util, sceShellUIUtilLaunchByUri);
   KERNEL_DLSYM(shellui_util, sceShellUIUtilInitialize);
@@ -284,9 +341,11 @@ bool resolve_native_symbols(pid_t pid) {
       LOG_ERROR("Failed to resolve sceSystemServiceLaunchApp");
   }
 
+  zt_boot_fine("native: shellui util + system service");
   int reg = get_module_handle(pid, "libSceRegMgr.sprx");
   KERNEL_DLSYM(reg, sceRegMgrGetInt);
 
+  zt_boot_fine("native: regmgr");
   int remoteplay = get_module_handle(pid, "libSceRemoteplay.sprx");
   LOG_DEBUG("Remote Play module handle: %d", remoteplay);
   KERNEL_DLSYM(remoteplay, sceRemoteplayInitialize);
@@ -1038,6 +1097,35 @@ void zt_memory_log(pid_t pid, const char *why) {
   zt_log("memory (%s): %s", why, zt_stats_memory_line().c_str());
 }
 
+/* diagnostic build: the modules loaded in this ShellUI, for comparing
+   firmwares (name, handle, base address, size of the first section) */
+void zt_diag_modules(pid_t pid) {
+#if ZT_DIAG
+  size_t n = 0;
+  syscall(SYS_dl_get_list, pid, nullptr, 0, &n);
+  if (!n || n > 1024) {
+    zt_log("diag: module list empty (%zu)", n);
+    return;
+  }
+  std::vector<uintptr_t> handles(n);
+  syscall(SYS_dl_get_list, pid, handles.data(), n, &n);
+  zt_log("diag: %zu modules in ShellUI", n);
+  module_info_t *info = static_cast<module_info_t *>(malloc(sizeof(module_info_t)));
+  if (!info)
+    return;
+  for (size_t i = 0; i < n && i < handles.size(); ++i) {
+    memset(info, 0, sizeof(module_info_t));
+    if (syscall(SYS_dl_get_info_2, pid, 1, handles[i], info) != 0)
+      continue;
+    zt_log("diag: module %3lu %.60s base 0x%lx size 0x%lx", (unsigned long)handles[i], info->filename,
+           (unsigned long)info->sections[0].vaddr, (unsigned long)info->sections[0].size);
+  }
+  free(info);
+#else
+  (void)pid;
+#endif
+}
+
 /*
  * ZhiThemes module: only the theme (theme.js injection, focus frame, editor on
  * :4444). Everything else OnionHEN does in ShellUI is left out. Runs until a
@@ -1048,10 +1136,14 @@ int zhithemes_main(pid_t pid, uint64_t old_authid, const OrbisKernelSwVersion &s
      confirmed on 9.60, and ShellUI crashed before the first log line) */
   zt_log_session_start(sw.version_str, sw.version);
   zt_boot("log session");
+  zt_diag_modules(pid);
   Root_Domain = mono_get_root_domain();
-  if (!Root_Domain)
+  if (!Root_Domain) {
+    zt_boot("no mono root domain");
     return -1;
+  }
   mono_thread_attach(Root_Domain);
+  zt_boot_fine("mono thread attached");
   ShellImages images;
   if (!load_shell_images(images))
     return -1;
@@ -1067,6 +1159,7 @@ int zhithemes_main(pid_t pid, uint64_t old_authid, const OrbisKernelSwVersion &s
   zt_log("zhithemes: module ready (tick hook=%d)", (int)tick);
   zt_boot("tick hook");
   zt_font_probe();
+  zt_boot_fine("font probe");
   zt_boot("font hooks");
   theme_web_start();
   shellui_request_hub_reload();
@@ -1100,8 +1193,10 @@ int main(int argc, char const* argv[]) {
     return 0;
 
   zt_boot("---- module main");
+  zt_boot_heartbeat_start();
   const pid_t pid = getpid();
   AuthIdGuard auth(pid, set_ucred_to_ptrace());
+  zt_boot_fine("authid ptrace");
 
   if (!resolve_native_symbols(pid))
     return -1;
