@@ -1,0 +1,65 @@
+name: Bug report
+description: Something does not look right, the Home crashes or reloads, or an editor option does nothing
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing ZhiThemes! A log helps much more than a long description.
+        Turn on **Debug mode** in the editor's **Logs** tab, do the thing that fails again, then download the log from that tab
+        (or copy it from `/data/ZhiThemes/Logs/` by FTP). More in `docs/LOGS.md` in the repository.
+
+  - type: input
+    id: version
+    attributes:
+      label: ZhiThemes version
+      description: Shown in the editor's top bar and in the About tab.
+      placeholder: "0.1.0-alpha"
+    validations:
+      required: true
+
+  - type: input
+    id: firmware
+    attributes:
+      label: PS5 firmware
+      placeholder: "9.60"
+    validations:
+      required: true
+
+  - type: input
+    id: loader
+    attributes:
+      label: Jailbreak / loader and other payloads running
+      description: For example kstuff, elfldr, etaHEN, an FTP server…
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you saw instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: theme
+    attributes:
+      label: Theme
+      description: Which options were on? You can attach your `.ztheme` (editor → Download), if you are fine with sharing it.
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Attach the log file (drag it here), or paste it.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots or video
+      description: Optional, but very useful for anything visual.

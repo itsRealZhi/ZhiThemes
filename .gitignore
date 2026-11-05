@@ -1,0 +1,27 @@
+# build outputs
+src/build/
+src/.cache/
+release/
+*.elf
+*.o
+*.a
+# prebuilt library from OnionHEN, needed by the build
+!src/third_party/keystone/lib/libkeystone.a
+
+# generated from theme/ by scripts/build_zhithemes.sh
+src/source/shellui/include/theme_default_js.hpp
+src/source/shellui/include/theme_web_page.hpp
+src/source/shellui/include/zt_particle_textures.hpp
+theme/theme_factory.js
+
+# Python / editors
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+
+# never commit
+*.key
+steamgrid.key
+.DS_Store
+Thumbs.db

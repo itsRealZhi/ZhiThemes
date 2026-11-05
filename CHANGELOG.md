@@ -1,0 +1,42 @@
+# Changelog
+
+Versions go up (0.1.x, 0.2.0…) until 1.0.0.
+
+## 0.1.0-alpha — first release
+
+Alpha: tested on one PS5, firmware **9.60**. Other firmwares are untested; reports are welcome (see [docs/LOGS.md](docs/LOGS.md)).
+
+### Home screen
+- **Tiles:** square 1:1 or vertical 2:3 covers; the focused tile can be vertical 2:3 or *Steam horizontal* 92:43 (like the Steam Deck). Size, gap, corners, shadow, reflection, how many games the row shows.
+- **Custom pictures per game:** your own tiles in every format, game backgrounds and game logos, uploaded or found with the built-in **SteamGridDB** search (you need your own free API key). A cropper for every format.
+- **Animated tiles and backgrounds:** animated WebP / APNG / MP4 / WebM become a still picture plus an MP4 the PS5 plays on the focused tile, with optional in-between frames for smooth motion.
+- **Focus frame:** colours, glow, rainbow, shape.
+- **Game names:** the PS5 game title, the tile title, or a *fake title* placed anywhere on the screen; game logos instead of names.
+- **Folders:** game folders on the Home, shown as a mosaic, stacked covers or icons, with their own background.
+- **Extra tabs** next to Games / Media: *Recently played*, *Favourites*, *Never played*; add or remove favourites from the Options menu.
+- **Wallpaper:** a picture or an `.mp4` video, with overlay, vignette, dark edges and 23 particle styles (snow, sakura, rain, starfield, digital rain…).
+- **Extras:** own clock and date, play info ("Last played 3 days ago"), fake trophies, animated avatar (GIF), animations (tab change, folders, names, button bounce), debug panel (fps, memory, temperatures).
+- **Fonts:** your own system font without a restart; colours and sizes of the texts.
+
+### Other screens
+- Game hub, Game / App Library, Settings and Trophies follow the theme: background colour, your picture or video (shared with the Home, so it keeps playing between screens), list and tab shapes.
+
+### Editor
+- Web editor on `http://<PS5-IP>:4444` from a PC or phone: a live **Visual** view of the Home, tabs named after the part of the screen they change, one colour picker everywhere, an *Advanced* switch for the less used options.
+- **Several themes on one PS5:** make, rename, switch and delete themes.
+- **Share themes:** *Download* saves one `.ztheme` file with the settings and the wallpaper / video, icons and fonts it uses; *Install* adds someone else's. Your folders and custom pictures are never included.
+
+### Installing and switching themes on the PS5
+- **🎨 ZhiThemes** in every tile's Options menu: switch theme, turn ZhiThemes off (*PS5 default*), install themes from a USB drive.
+- Copy a `.ztheme` to `/data/ZhiThemes/Install/` and it is installed when ZhiThemes starts.
+
+### Safety
+- Nothing is written to system files: everything runs in memory, and a reboot gives back the stock PS5.
+- A theme file can only carry values (numbers, true/false, text); a file with code is ignored.
+- **Safe mode:** if the Home crashes twice within 3 minutes the theme turns itself off; a USB drive with an empty `ZhiThemes/no_theme` file keeps it off while plugged in.
+- **Logs tab:** debug mode, logs with firmware, version and timestamps, also saved in `/data/ZhiThemes/Logs/`.
+
+### Known limits
+- Only tested on firmware 9.60.
+- Loading ZhiThemes many times without restarting the console can use up the Home's memory; from the 4th load in a row the welcome message asks you to restart the PS5.
+- No live blur behind panels; the text colour of Settings rows cannot be changed.

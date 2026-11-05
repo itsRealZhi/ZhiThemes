@@ -1,0 +1,7 @@
+# Unix line endings in the repository (the build runs on Linux/WSL)
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ttf binary
+*.otf binary
+*.elf binary
