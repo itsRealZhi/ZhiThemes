@@ -8,6 +8,7 @@ later version. See LICENSE and NOTICE.  */
 
 #pragma once
 
+#include <functional>
 #include <string>
 
 /* SteamGridDB for the editor's Tiles tab: the PS5 makes the HTTPS
@@ -22,3 +23,10 @@ bool zt_sgdb_get(const std::string &url, const std::string &key, std::string &bo
    not kept in memory); size = bytes written; the file is removed on failure */
 bool zt_sgdb_get_file(const std::string &url, const std::string &path, size_t &size, long &http,
                       std::string &err, size_t max_bytes);
+/* the same from the CDN, handed on piece by piece as it arrives (the editor
+   gets the first bytes at once and sees the progress). chunk(data, n, http,
+   total) is called for each piece: http = the CDN status, total = its
+   Content-Length or -1; returning false stops the download. */
+bool zt_sgdb_stream(const std::string &url, size_t max_bytes,
+                    const std::function<bool(const char *, size_t, long, long long)> &chunk, long &http,
+                    std::string &err);

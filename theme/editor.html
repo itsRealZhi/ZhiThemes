@@ -37,6 +37,22 @@
                     background: var(--dim); vertical-align: 1px; }
   #status.ok { color: var(--ok); } #status.ok::before { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
   #status.err { color: var(--err); } #status.err::before { background: var(--err); }
+  /* progress: a bar under the status pill (uploads to the PS5) and .zt-prog boxes (downloads, video) */
+  #status { position: relative; }
+  #stBar { position: absolute; left: 0; bottom: 0; height: 3px; width: 0; background: var(--accent); display: none;
+           transition: width .2s; border-radius: 2px; }
+  #status.prog #stBar { display: block; }
+  #status.prog.wait #stBar { width: 30% !important; animation: ztWait 1.1s ease-in-out infinite alternate; }
+  .zt-prog { position: relative; margin: 6px 0; padding: 7px 10px 10px; border-radius: 8px; background: var(--panel);
+             border: 1px solid var(--line); font-size: 12px; color: var(--muted); overflow: hidden; }
+  .zt-prog b { font-weight: normal; position: relative; }
+  .zt-prog i { position: absolute; left: 0; bottom: 0; height: 4px; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent2));
+               transition: width .2s; }
+  .zt-prog.wait i { width: 30% !important; animation: ztWait 1.1s ease-in-out infinite alternate; }
+  .ct-pic .zt-thumb { position: absolute; left: 6px; right: 6px; top: 6px; height: 3px; border-radius: 2px; background: #0006; overflow: hidden; }
+  .ct-pic .zt-thumb i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .ct-pic .zt-thumb.wait i { width: 30%; animation: ztWait 1.1s ease-in-out infinite alternate; }
+  @keyframes ztWait { from { margin-left: 0; } to { margin-left: 70%; } }
   .sep { width: 1px; height: 24px; background: var(--line); margin: 0 4px; }
   /* the theme's name in the middle of the top bar (click to change) */
   header .brand { margin-right: 0; flex: 1 1 0; }
@@ -287,6 +303,11 @@
   .ct-pic .tag.low { background: #a33; color: #fff; margin-left: 3px; }
   .ct-pic .tag { display: inline-block; margin-top: 3px; padding: 0 6px; border-radius: 8px; background: var(--accent);
                  color: var(--accent-ink); font-size: 10px; }
+  .sg-big { position: relative; }
+  .sg-prog { position: absolute; left: 8px; right: 8px; top: 8px; padding: 6px 8px; border-radius: 8px; background: #000b;
+             color: #fff; font-size: 11px; overflow: hidden; }
+  .sg-prog i { position: absolute; left: 0; bottom: 0; height: 3px; width: 0; background: var(--accent); transition: width .2s; }
+  .sg-prog b { font-weight: normal; position: relative; }
   .sg-pick { margin-top: 10px; padding: 10px; border-radius: 10px; background: var(--panel2); }
   .sg-pick .row { margin-top: 8px; align-items: center; }
   .sg-pick .sg-big { width: 200px; cursor: default; }
@@ -410,7 +431,7 @@
   <div class="brand"><div class="logo">Z</div><h1>ZhiThemes <span>· PS5 theme editor · by Zhi</span></h1></div>
   <div id="themeTitleBox"><div id="themeTitle" title="The theme in use. To change its name: Theme ▾ → Rename">…</div></div><span class="grow"></span>
   <span id="fwinfo" title="PS5 firmware and ZhiThemes version"></span>
-  <span id="status">loading…</span>
+  <span id="status"><span id="statusTxt">loading…</span><i id="stBar"></i></span>
   <span class="sep"></span>
   <label class="btn advsw" title="Advanced: every field in each tab and Visual module, marked with an Advanced label. Off: the main fields only (in the Visual tab the rest is under More options)"><input type="checkbox" id="advSwitch"><span class="advtxt">Advanced</span></label>
   <div id="themesWrap">
@@ -1090,7 +1111,60 @@
     }
     return !!ADV_SET[k];
   }
-  function status(text, kind) { statusEl.textContent = text; statusEl.className = kind || ''; }
+  function status(text, kind) { document.getElementById('statusTxt').textContent = text; statusEl.className = kind || ''; }
+  /* status with a bar: frac 0..1, or null = waiting (moving bar) */
+  function statusProg(text, frac) {
+    document.getElementById('statusTxt').textContent = text;
+    statusEl.className = 'prog' + (frac == null ? ' wait' : '');
+    document.getElementById('stBar').style.width = (frac == null ? 0 : Math.max(2, Math.min(100, frac * 100))) + '%';
+  }
+  function sizeMB(n) { return (n / 1048576).toFixed(n < 10485760 ? 1 : 0); }
+  /* "45% · 2.1 / 4.6 MB · 1.3 MB/s" */
+  function progText(now, total, t0) {
+    var secs = Math.max(0.2, (Date.now() - t0) / 1000), rate = now / secs;
+    return (total ? Math.floor(now * 100 / total) + '% · ' + sizeMB(now) + ' / ' + sizeMB(total) + ' MB'
+                  : sizeMB(now) + ' MB') + ' · ' + (rate >= 1048576 ? sizeMB(rate) + ' MB/s' : Math.round(rate / 1024) + ' KB/s');
+  }
+  /* a progress box: progSet(el, text, frac) */
+  function progEl(text, frac, id) {
+    var d = document.createElement('div');
+    d.className = 'zt-prog';
+    if (id) d.id = id;
+    d.appendChild(document.createElement('b'));
+    d.appendChild(document.createElement('i'));
+    progSet(d, text, frac);
+    return d;
+  }
+  function progSet(d, text, frac) {
+    if (!d) return;
+    d.firstChild.textContent = text;
+    d.classList.toggle('wait', frac == null);
+    d.lastChild.style.width = (frac == null ? 0 : Math.max(1, Math.min(100, frac * 100))) + '%';
+  }
+  /* POST a file to the PS5 with the upload progress on the status bar
+     (and onProg(frac, text) when given); answers like fetch (ok, status, text()) */
+  function upPost(url, body, onProg) {
+    var m = /[?&]name=([^&]*)/.exec(url), name = m ? decodeURIComponent(m[1]) : 'the file';
+    return new Promise(function (ok, no) {
+      var x = new XMLHttpRequest(), t0 = Date.now();
+      x.open('POST', url);
+      x.upload.onprogress = function (ev) {
+        var total = ev.lengthComputable ? ev.total : 0;
+        var t = 'sending ' + name + ' · ' + progText(ev.loaded, total, t0);
+        statusProg(t, total ? ev.loaded / total : null);
+        if (onProg) onProg(total ? ev.loaded / total : null, t);
+      };
+      x.upload.onload = function () { statusProg('sending ' + name + ' · waiting for the PS5…', null); };
+      x.onload = function () {
+        statusEl.classList.remove('prog', 'wait');
+        var txt = x.responseText;
+        ok({ ok: x.status >= 200 && x.status < 300, status: x.status, text: function () { return Promise.resolve(txt); } });
+      };
+      x.onerror = function () { statusEl.classList.remove('prog', 'wait'); no(new Error('upload of ' + name + ' failed (network)')); };
+      statusProg('sending ' + name + '…', 0);
+      x.send(body);
+    });
+  }
   function request(method, path, body) {
     return fetch(path, { method: method, body: body, cache: 'no-store' }).then(function (r) {
       return r.text().then(function (t) { if (!r.ok) throw new Error(r.status + ' ' + t); return t; });
@@ -2238,7 +2312,7 @@
       }
       return new Promise(function (ok) { c.toBlob(ok, 'image/png'); });
     }).then(function (blob) {
-      return fetch('/background?name=' + encodeURIComponent(name), { method: 'POST', body: blob })
+      return upPost('/background?name=' + encodeURIComponent(name), blob)
         .then(function (r) { if (!r.ok) throw new Error('icon upload ' + r.status); });
     }).then(function () {
       if (foldBgs.indexOf(name) < 0) foldBgs.push(name);
@@ -2531,7 +2605,7 @@
       (k === 'lg' ? logoPng(url) : k !== 'bg' ? toPng(url) : Promise.resolve(file))
         .then(function (body) {
           URL.revokeObjectURL(url);
-          return fetch(kKind(k).dir + '?name=' + encodeURIComponent(name), { method: 'POST', body: body });
+          return upPost(kKind(k).dir + '?name=' + encodeURIComponent(name), body);
         })
         .then(function (r) {
           if (!r.ok) throw new Error('upload ' + r.status);
@@ -2613,7 +2687,7 @@
       return pr.then(function () {
         var png = f.replace(/\.jpe?g$/i, '.png');
         return toPng('/customtile?name=' + encodeURIComponent(f)).then(function (b) {
-          return fetch('/customtile?name=' + encodeURIComponent(png), { method: 'POST', body: b });
+          return upPost('/customtile?name=' + encodeURIComponent(png), b);
         }).then(function (r) {
           if (!r.ok) throw new Error('upload ' + r.status);
           return request('POST', '/customtile/delete?name=' + encodeURIComponent(f));
@@ -3325,7 +3399,7 @@
       status('sending ' + files[0][0] + '…');
       return files.reduce(function (pr, x) {
         return pr.then(function () {
-          return fetch('/customtile?name=' + encodeURIComponent(x[0]), { method: 'POST', body: x[1] }).then(function (r) {
+          return upPost('/customtile?name=' + encodeURIComponent(x[0]), x[1]).then(function (r) {
             if (!r.ok) throw new Error('upload ' + r.status);
           });
         });
@@ -3342,7 +3416,7 @@
   var imp = null; /* {k, id, m, c: {zoom, px, py}, src, busy} */
   function impStart(k, id, blob, src) {
     if (k === 'lg') return;
-    imp = { k: k, id: id, m: null, c: { zoom: 1, px: 0.5, py: 0.5 }, src: src || 'upload', busy: 'Reading the picture…' };
+    imp = { k: k, id: id, m: null, c: { zoom: 1, px: 0.5, py: 0.5 }, src: src || 'upload', busy: 'Reading the picture…', busyFrac: null };
     drawTiles();
     mediaLoad(blob, k).then(function (m) {
       if (!imp || imp.id !== id || imp.k !== k) return;
@@ -3361,17 +3435,21 @@
     var k = I.k, id = I.id, n = kNext(k, id), base = id + '_' + kFmt(k) + '_' + n;
     var dir = kKind(k).dir;
     var send = function (name, blob) {
-      return fetch(dir + '?name=' + encodeURIComponent(name), { method: 'POST', body: blob }).then(function (r) {
+      I.busyFrac = 0;
+      return upPost(dir + '?name=' + encodeURIComponent(name), blob, function (f, t) {
+        I.busy = t; I.busyFrac = f;
+        progSet(document.getElementById('impbusy'), t, f);
+      }).then(function (r) {
         if (!r.ok) throw new Error('upload ' + r.status);
       });
     };
     var steps = Promise.resolve();
     if (impMoves(I.m, k)) {
-      I.busy = 'Making the video… keep this tab in front';
+      I.busy = 'Making the video… keep this tab in front'; I.busyFrac = 0;
       drawTiles();
       steps = mediaMp4(I.m, k, I.c, function (f, what) {
-        var el = document.getElementById('impbusy');
-        if (el) el.textContent = (what || 'Making the video') + ' ' + Math.round(f * 100) + '%… keep this tab in front';
+        I.busy = (what || 'Making the video') + ' ' + Math.round(f * 100) + '%… keep this tab in front'; I.busyFrac = f;
+        progSet(document.getElementById('impbusy'), I.busy, f);
       }).then(function (mp4) {
         I.busy = 'Sending ' + base + '.mp4 (' + Math.round(mp4.size / 1024) + ' KB)…';
         drawTiles();
@@ -3398,8 +3476,7 @@
     h.textContent = 'New ' + f.label.toLowerCase() + ' ' + f.ratio + ' picture' + (I.src === 'sgdb' ? ' (SteamGridDB)' : ' (upload)');
     box.appendChild(h);
     if (I.busy || !I.m) {
-      var b = document.createElement('p'); b.className = 'tip'; b.id = 'impbusy'; b.textContent = I.busy || '…';
-      box.appendChild(b);
+      box.appendChild(progEl(I.busy || '…', I.busyFrac == null ? null : I.busyFrac, 'impbusy'));
       dEl.appendChild(box);
       return;
     }
@@ -3695,15 +3772,111 @@
   var sgKeySet = null;
   var sgAnim = false;
   try { sgAnim = localStorage.getItem('zt.sgAnim') === '1'; } catch (e) {}
+  /* SteamGridDB pictures come through the PS5 (/sgdb/img), which fetches
+     one at a time: each is asked once and kept here (redraws, the big
+     preview and Download use the same copy); the picture clicked goes
+     first in the queue; progress from the bytes read */
+  var sgCache = {}, sgOrder = [], sgQueue = [], sgActive = 0;
+  var sgMB = sizeMB;
+  function sgProgText(e) { return e.now ? progText(e.now, e.total, e.t0) : 'waiting for the PS5…'; }
+  function sgFrac(e) { return e.total && e.now ? e.now / e.total : null; }
+  function sgPump() {
+    while (sgActive < 2 && sgQueue.length) sgRun(sgQueue.shift());
+  }
+  function sgRun(e) {
+    sgActive++;
+    e.t0 = Date.now();
+    var done = function () { sgActive--; sgPump(); };
+    fetch('/sgdb/img?u=' + encodeURIComponent(e.u)).then(function (r) {
+      if (!r.ok) return r.text().then(function (t) { throw new Error(t || 'SteamGridDB ' + r.status); });
+      e.total = parseInt(r.headers.get('Content-Length'), 10) || 0;
+      if (!r.body || !r.body.getReader) return r.blob();
+      var rd = r.body.getReader(), parts = [];
+      var step = function () {
+        return rd.read().then(function (x) {
+          if (x.done) return new Blob(parts, { type: r.headers.get('Content-Type') || '' });
+          parts.push(x.value); e.now += x.value.length;
+          e.subs.forEach(function (f) { try { f(e); } catch (er) {} });
+          return step();
+        });
+      };
+      return step();
+    }).then(function (b) {
+      if (e.total && b.size < e.total) throw new Error('the picture came cut off (' + sgMB(b.size) + ' of ' + sgMB(e.total) + ' MB)');
+      e.blob = b; e.subs = []; done(); e.ok(b);
+    }).catch(function (er) {
+      delete sgCache[e.u]; e.subs = []; done(); e.no(er);
+    });
+  }
+  /* the picture as a Blob; onProg(entry) while it comes; urgent = ahead of the thumbnails */
+  function sgGet(u, onProg, urgent) {
+    var e = sgCache[u];
+    if (!e) {
+      e = sgCache[u] = { u: u, now: 0, total: 0, t0: Date.now(), subs: [], blob: null, url: '' };
+      e.p = new Promise(function (ok, no) { e.ok = ok; e.no = no; });
+      e.p.catch(function () {});
+      sgQueue.push(e);
+      sgOrder.push(u);
+      /* keep the last 60 pictures */
+      while (sgOrder.length > 60) {
+        var old = sgCache[sgOrder[0]];
+        if (old && !old.blob) break;
+        sgOrder.shift();
+        if (old) { if (old.url) URL.revokeObjectURL(old.url); delete sgCache[old.u]; }
+      }
+    }
+    if (urgent) {
+      var qi = sgQueue.indexOf(e);
+      if (qi > 0) { sgQueue.splice(qi, 1); sgQueue.unshift(e); }
+    }
+    if (onProg && !e.blob) { e.subs.push(onProg); onProg(e); }
+    sgPump();
+    return e.p;
+  }
+  function sgUrl(u, onProg, urgent) {
+    return sgGet(u, onProg, urgent).then(function (b) {
+      var e = sgCache[u];
+      if (!e) return URL.createObjectURL(b);
+      if (!e.url) e.url = URL.createObjectURL(b);
+      return e.url;
+    });
+  }
+  /* the queued thumbnails of another page / game are not wanted any more */
+  function sgDropQueue() {
+    sgQueue.forEach(function (e) { delete sgCache[e.u]; e.no(new Error('dropped')); });
+    sgQueue = [];
+  }
   /* a SteamGridDB thumbnail / picture: animated ones may come as video */
-  function sgMedia(el, u, fallbackText) {
-    var src = '/sgdb/img?u=' + encodeURIComponent(u);
-    if (!/\.(webm|mp4)(\?|$)/i.test(u)) return ctImg(el, src, fallbackText);
-    var v = document.createElement('video');
-    v.muted = true; v.loop = true; v.autoplay = true; v.playsInline = true;
-    v.onerror = function () { var n = document.createElement('div'); n.className = 'noimg'; n.textContent = fallbackText; v.replaceWith(n); };
-    v.src = src;
-    el.appendChild(v);
+  function sgMedia(el, u, fallbackText, onProg, urgent) {
+    var isVid = /\.(webm|mp4)(\?|$)/i.test(u);
+    var m = document.createElement(isVid ? 'video' : 'img');
+    var ce = sgCache[u];
+    if (!onProg && !(ce && ce.blob)) {
+      /* a thin bar on the thumbnail until it is here */
+      var tb = document.createElement('div'); tb.className = 'zt-thumb wait';
+      var ti = document.createElement('i'); tb.appendChild(ti);
+      el.style.position = 'relative';
+      el.appendChild(tb);
+      onProg = function (e) {
+        var f = sgFrac(e);
+        tb.classList.toggle('wait', f == null);
+        ti.style.width = f == null ? '' : Math.round(f * 100) + '%';
+      };
+      var gone = function () { if (tb.parentNode) tb.remove(); };
+      sgGet(u).then(gone, gone);
+    }
+    if (isVid) { m.muted = true; m.loop = true; m.autoplay = true; m.playsInline = true; } else m.alt = '';
+    var bad = function () { var n = document.createElement('div'); n.className = 'noimg'; n.textContent = fallbackText; if (m.parentNode) m.replaceWith(n); };
+    m.onerror = bad;
+    el.appendChild(m);
+    sgUrl(u, onProg, urgent).then(function (src) { m.src = src; }, function (er) { if (er.message !== 'dropped') bad(); });
+    return m;
+  }
+  /* the busy line: updated in place while a download comes */
+  function sgBusySet(t, frac) {
+    sg.busyFrac = null; sg.busy = t; sg.busyFrac = frac;
+    var b = document.getElementById('sgBusy');
+    if (b) progSet(b, t, frac); else drawTiles();
   }
   function sgKeyLoad() {
     return request('GET', '/sgdb/key').then(function (t) {
@@ -3715,20 +3888,21 @@
       .then(function (r) { return r.text().then(function (t) { if (!r.ok) throw new Error(t || r.status); return t; }); });
   }
   function sgSearch(q) {
-    sg.q = q; sg.games = null; sg.game = null; sg.grids = null; sg.pick = null; sg.full = null; sg.busy = 'Searching "' + q + '"…';
+    sg.q = q; sg.games = null; sg.game = null; sg.grids = null; sg.pick = null; sg.full = null; sg.busyFrac = null; sg.busy = 'Searching "' + q + '"…';
     drawTiles();
     sgFetch('/sgdb/search?q=' + encodeURIComponent(q)).then(function (t) {
       var j = JSON.parse(t);
       sg.games = (j && j.data) || [];
-      sg.busy = '';
+      sg.busyFrac = null; sg.busy = '';
       if (sg.games.length === 1) return sgGrids(sg.games[0], 0);
       drawTiles();
-    }).catch(function (e) { sg.busy = ''; sg.games = []; drawTiles(); fail(e); });
+    }).catch(function (e) { sg.busyFrac = null; sg.busy = ''; sg.games = []; drawTiles(); fail(e); });
   }
   function sgGrids(game, page) {
     var k = sg.kind, id = sg.id;
     sg.game = game; sg.page = page; sg.pick = null; sg.full = null; sg.grids = null;
-    sg.busy = 'Loading the ' + (sgAnim ? 'animated ' : '') + CT_FMT[k].label.toLowerCase() + ' pictures of ' + game.name + '…';
+    sgDropQueue();
+    sg.busyFrac = null; sg.busy = 'Loading the ' + (sgAnim ? 'animated ' : '') + CT_FMT[k].label.toLowerCase() + ' pictures of ' + game.name + '…';
     var anim = sgAnim;
     sg.anim = anim;
     drawTiles();
@@ -3737,57 +3911,54 @@
       var j = JSON.parse(t);
       sg.grids = (j && j.data) || [];
       sg.total = (j && j.total) || sg.grids.length;
-      sg.busy = '';
+      sg.busyFrac = null; sg.busy = '';
       drawTiles();
-    }).catch(function (e) { if (sg.kind === k) { sg.busy = ''; sg.grids = []; drawTiles(); } fail(e); });
+    }).catch(function (e) { if (sg.kind === k) { sg.busyFrac = null; sg.busy = ''; sg.grids = []; drawTiles(); } fail(e); });
   }
   /* a tile picture: the PS5 downloads it (customtile/<ID>_<fmt>_<n>) */
   function sgSave(id, pic) {
     var k = sg.kind;
     /* logos (animated ones too) through logoSave */
     if (k === 'lg') {
-      sg.busy = 'Downloading the logo through the PS5…';
+      sg.busyFrac = null; sg.busy = 'Downloading the logo through the PS5…';
       drawTiles();
-      fetch('/sgdb/img?u=' + encodeURIComponent(pic.url), { cache: 'no-store' }).then(function (r) {
-        if (!r.ok) return r.text().then(function (t) { throw new Error(t || 'SteamGridDB ' + r.status); });
-        return r.blob();
-      }).then(function (b) { sg.busy = ''; sg.pick = null; logoSave(id, b); })
-        .catch(function (e) { sg.busy = ''; drawTiles(); fail(e); });
+      sgGet(pic.url, function (e) { sgBusySet('Downloading the logo through the PS5… ' + sgProgText(e), sgFrac(e)); }, true)
+        .then(function (b) { sg.busyFrac = null; sg.busy = ''; sg.pick = null; logoSave(id, b); })
+        .catch(function (e) { sg.busyFrac = null; sg.busy = ''; drawTiles(); fail(e); });
       return;
     }
     /* an animated tile picture: PNG + MP4 made here (cropper if its shape differs) */
     if (sg.anim && (k === 'sq' || k === 'v' || k === 'st')) {
-      sg.busy = 'Downloading the animated picture through the PS5…';
+      sg.busyFrac = null; sg.busy = 'Downloading the animated picture through the PS5…';
       drawTiles();
-      fetch('/sgdb/img?u=' + encodeURIComponent(pic.url), { cache: 'no-store' }).then(function (r) {
-        if (!r.ok) throw new Error('SteamGridDB ' + r.status);
-        return r.blob();
-      }).then(function (b) {
-        sg.busy = ''; sg.pick = null;
+      sgGet(pic.url, function (e) { sgBusySet('Downloading the animated picture through the PS5… ' + sgProgText(e), sgFrac(e)); }, true).then(function (b) {
+        sg.busyFrac = null; sg.busy = ''; sg.pick = null;
         impStart(k, id, b, 'sgdb');
-      }).catch(function (e) { sg.busy = ''; drawTiles(); fail(e); });
+      }).catch(function (e) { sg.busyFrac = null; sg.busy = ''; drawTiles(); fail(e); });
       return;
     }
-    sg.busy = 'Downloading to the PS5…';
+    sg.busyFrac = null; sg.busy = 'Downloading to the PS5…';
     drawTiles();
     /* a JPEG comes here first and goes to the PS5 as PNG */
     /* an animated logo / picture goes to the PS5 as a still PNG (its first frame) */
-    var save = k === 'lg' || /\.(jpe?g|webp|gif)$/i.test(pic.url) || sg.anim ? (k === 'lg' ? logoPng : toPng)('/sgdb/img?u=' + encodeURIComponent(pic.url)).then(function (b) {
+    var save = k === 'lg' || /\.(jpe?g|webp|gif)$/i.test(pic.url) || sg.anim ? sgUrl(pic.url, function (e) { sgBusySet('Downloading to the PS5… ' + sgProgText(e), sgFrac(e)); }, true).then(function (src) {
+      return (k === 'lg' ? logoPng : toPng)(src);
+    }).then(function (b) {
       var name = id + '_' + kFmt(k) + '_' + kNext(k, id) + '.png';
-      return fetch('/customtile?name=' + encodeURIComponent(name), { method: 'POST', body: b }).then(function (r) {
+      return upPost('/customtile?name=' + encodeURIComponent(name), b).then(function (r) {
         if (!r.ok) throw new Error('upload ' + r.status);
         return name;
       });
     }) : sgFetch('/sgdb/save?u=' + encodeURIComponent(pic.url) + '&id=' + id + '&fmt=' + kFmt(k), 'POST');
     save
       .then(function (name) {
-        sg.busy = ''; sg.pick = null;
+        sg.busyFrac = null; sg.busy = ''; sg.pick = null;
         return ctLoad().then(function () {
           var m = /_(\d+)\.\w+$/.exec(name);
           if (m) kChoose(k, id, parseInt(m[1], 10));
           status(name + ' saved and picked — press Apply to reload the Home', 'ok');
         });
-      }).catch(function (e) { sg.busy = ''; drawTiles(); fail(e); });
+      }).catch(function (e) { sg.busyFrac = null; sg.busy = ''; drawTiles(); fail(e); });
   }
   /* a background picked: the full picture comes first (through the
      PS5, any size, PNG or JPEG), the 16:9 part is chosen on it and the
@@ -3810,32 +3981,32 @@
     /* an animated background: whole file through the PS5, then the cropper (PNG + MP4) */
     if (sg.anim) {
       sg.pick = null; sg.full = null;
-      sg.busy = 'Downloading the animated background (' + pic.width + '×' + pic.height + ') through the PS5… big ones take a while';
+      var base = 'Downloading the animated background (' + pic.width + '×' + pic.height + ') through the PS5… ';
+      sg.busyFrac = null; sg.busy = base;
       drawTiles();
-      fetch('/sgdb/img?u=' + encodeURIComponent(pic.url), { cache: 'no-store' }).then(function (r) {
-        if (!r.ok) return r.text().then(function (t) { throw new Error(t || 'SteamGridDB ' + r.status); });
-        return r.blob();
-      }).then(function (b) {
-        sg.busy = '';
+      sgGet(pic.url, function (e) { if (sg.id === id) sgBusySet(base + sgProgText(e), sgFrac(e)); }, true).then(function (b) {
+        sg.busyFrac = null; sg.busy = '';
         if (sg.id === id) impStart('bg', id, b, 'sgdb');
-      }).catch(function (e) { sg.busy = ''; drawTiles(); fail(e); });
+      }).catch(function (e) { sg.busyFrac = null; sg.busy = ''; drawTiles(); fail(e); });
       return;
     }
     sg.pick = pic; sg.pickPos = 0.5; sg.full = null;
-    sg.busy = 'Downloading the full picture (' + pic.width + '×' + pic.height + ') through the PS5…';
+    var fb = 'Downloading the full picture (' + pic.width + '×' + pic.height + ') through the PS5… ';
+    sg.busyFrac = null; sg.busy = fb;
     drawTiles();
     var img = new Image();
     img.onload = function () {
       if (sg.pick !== pic || sg.id !== id) return;
-      sg.full = img; sg.busy = '';
+      sg.full = img; sg.busyFrac = null; sg.busy = '';
       drawTiles();
     };
     img.onerror = function () {
       if (sg.pick !== pic) return;
-      sg.busy = ''; sg.pick = null; drawTiles();
+      sg.busyFrac = null; sg.busy = ''; sg.pick = null; drawTiles();
       fail(new Error('the picture did not come from SteamGridDB'));
     };
-    img.src = '/sgdb/img?u=' + encodeURIComponent(pic.url);
+    sgUrl(pic.url, function (e) { if (sg.pick === pic) sgBusySet(fb + sgProgText(e), sgFrac(e)); }, true)
+      .then(function (src) { if (sg.pick === pic) img.src = src; }, function () { img.onerror(); });
   }
   function sgSaveBg(id) {
     var img = sg.full, pos = sg.pickPos == null ? 0.5 : sg.pickPos;
@@ -3844,20 +4015,20 @@
     cv.width = 1920; cv.height = 1080;
     sgPaint(cv, img, pos);
     var name = id + '_16x9_' + kNext('bg', id) + '.png';
-    sg.busy = 'Sending ' + name + ' (1920×1080) to the PS5…';
+    sg.busyFrac = null; sg.busy = 'Sending ' + name + ' (1920×1080) to the PS5…';
     drawTiles();
     new Promise(function (ok, no) {
       cv.toBlob(function (b) { if (b) ok(b); else no(new Error('cannot make the picture')); }, 'image/png');
     }).then(function (blob) {
-      return fetch('/custombg?name=' + encodeURIComponent(name), { method: 'POST', body: blob });
+      return upPost('/custombg?name=' + encodeURIComponent(name), blob);
     }).then(function (r) {
       if (!r.ok) throw new Error('upload ' + r.status);
-      sg.busy = ''; sg.pick = null; sg.full = null;
+      sg.busyFrac = null; sg.busy = ''; sg.pick = null; sg.full = null;
       return ctLoad();
     }).then(function () {
       kChoose('bg', id, parseInt(/_(\d+)\.png$/.exec(name)[1], 10));
       status(name + ' saved and picked — press Apply to reload the Home', 'ok');
-    }).catch(function (e) { sg.busy = ''; drawTiles(); fail(e); });
+    }).catch(function (e) { sg.busyFrac = null; sg.busy = ''; drawTiles(); fail(e); });
   }
   /* the picture clicked in the results: preview + Download (all formats) */
   function sgPicked(box, g) {
@@ -3892,7 +4063,26 @@
     } else {
       var pv = document.createElement('div');
       pv.className = 'ct-pic ' + CT_FMT[k].cls + ' on sg-big';
-      sgMedia(pv, sg.anim ? pic.url : pic.thumb || pic.url, '…');
+      var full = sg.anim ? pic.url : pic.thumb || pic.url;
+      var two = !!pic.thumb && full !== pic.thumb;
+      var first = sgMedia(pv, two ? pic.thumb : full, '…');
+      if (two) {
+        /* the full animated picture: the thumbnail stays until it is all here */
+        var pg = document.createElement('div'); pg.className = 'sg-prog';
+        pg.title = 'The full animation comes through the PS5';
+        var bar = document.createElement('i'), pt = document.createElement('b');
+        pg.appendChild(bar); pg.appendChild(pt);
+        pv.appendChild(pg);
+        sgUrl(full, function (e) {
+          pt.textContent = 'Loading the animation… ' + sgProgText(e);
+          bar.style.width = (e.total ? Math.min(100, e.now * 100 / e.total) : 0) + '%';
+        }, true).then(function (src) {
+          pg.remove();
+          if (first.tagName === 'IMG' && !/\.(webm|mp4)(\?|$)/i.test(full)) { first.src = src; return; }
+          var nm = sgMedia(document.createElement('div'), full, '…');
+          if (first.parentNode) first.replaceWith(nm); else pv.insertBefore(nm, pv.firstChild);
+        }, function (er) { pt.textContent = 'The animation did not come: ' + er.message; bar.style.width = '0'; });
+      }
       var sp = document.createElement('span'); sp.textContent = pic.width + '×' + pic.height + (pic.author && pic.author.name ? ' · by ' + pic.author.name : '');
       pv.appendChild(sp);
       wrap.appendChild(pv);
@@ -3942,7 +4132,7 @@
       box.appendChild(kt);
     }
     if (sg.busy) {
-      var b = document.createElement('p'); b.className = 'tip'; b.textContent = sg.busy; box.appendChild(b);
+      box.appendChild(progEl(sg.busy, sg.busyFrac, 'sgBusy'));
     } else if (sg.grids && sg.game) {
       var hd = document.createElement('p'); hd.className = 'tip';
       hd.textContent = sg.game.name + ': ' + sg.total + ' ' + (sg.anim ? 'animated ' : '') + (k === 'bg'
@@ -4184,7 +4374,7 @@
         var nm = 'zt_up_' + foldHash(file.name + file.size) + '.png';
         status('sending ' + file.name + '…');
         /* the folder's own picture goes to /data/ZhiThemes/folders */
-        fetch('/background?kind=folders&name=' + encodeURIComponent(nm), { method: 'POST', body: file })
+        upPost('/background?kind=folders&name=' + encodeURIComponent(nm), file)
           .then(function (r) {
             if (!r.ok) throw new Error('upload ' + r.status);
             if (foldBgs.indexOf(nm) < 0) foldBgs.push(nm);
@@ -6016,7 +6206,7 @@
       status('sending ' + name + ' (' + i + ' of ' + names.length + ')…');
       var url = kind === 'fonts' ? '/font?name=' + encodeURIComponent(name) + th
                                  : '/background?kind=' + kind + '&name=' + encodeURIComponent(name) + th;
-      return fetch(url, { method: 'POST', body: new Blob([files[n]]) })
+      return upPost(url, new Blob([files[n]]))
         .then(function (r) { return r.text().then(function (t) { if (!r.ok) throw new Error(name + ': ' + t); }); })
         .then(next);
     };
@@ -6270,7 +6460,7 @@
     if (!file) return;
     var name = uploadName(file.name);
     status('uploading font (' + Math.round(file.size / 1024) + ' KB)…');
-    fetch('/font?name=' + encodeURIComponent(name), { method: 'POST', body: file })
+    upPost('/font?name=' + encodeURIComponent(name), file)
       .then(function (r) { return r.text().then(function (t) { if (!r.ok) throw new Error(t); }); })
       .then(function () { setField(fontUploadKey, jsString(name)); renderTabs(); return apply(); })
       .then(function () {
@@ -6606,7 +6796,7 @@
   }
   function uploadAvatarResult(r) {
     status('avatar: uploading ' + r.name + ' (' + r.info + ')…');
-    return fetch('/background?kind=avatars&name=' + encodeURIComponent(r.name), { method: 'POST', body: r.blob })
+    return upPost('/background?kind=avatars&name=' + encodeURIComponent(r.name), r.blob)
       .then(function (res) { return res.text().then(function (t) { if (!res.ok) throw new Error(t); }); })
       .then(function () {
         setField('avatar', jsString(r.name));
@@ -6763,7 +6953,7 @@
     status('uploading ' + (video ? 'video (' + (file.size / 1048576).toFixed(1) + ' MB)' : 'image (' + Math.round(file.size / 1024) + ' KB)') + '…');
     /* icons to icons/, the rest (wallpaper, overlay, Settings background) to wallpapers/ */
     var kind = /Icon$|^tabsGroup(Left|Right)$|^particlesImage$/.test(bgUploadKey) ? 'icons' : 'wallpapers';
-    fetch('/background?kind=' + kind + '&name=' + encodeURIComponent(name), { method: 'POST', body: file })
+    upPost('/background?kind=' + kind + '&name=' + encodeURIComponent(name), file)
       .then(function (r) { return r.text().then(function (t) { if (!r.ok) throw new Error(t); }); })
       .then(function () {
         setField(bgUploadKey, jsString(name));

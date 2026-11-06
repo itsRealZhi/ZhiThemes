@@ -27,6 +27,7 @@ Alpha: made on firmware **9.60**; also seen working on **13.60** by a tester. Ot
 - Web editor on `http://<PS5-IP>:4444` from a PC or phone: a live **Visual** view of the Home, tabs named after the part of the screen they change, one colour picker everywhere, an *Advanced* switch for the less used options.
 - **Several themes on one PS5:** make, rename, switch and delete themes.
 - **Share themes:** *Download* saves one `.ztheme` file with the settings and the wallpaper / video, icons and fonts it uses; *Install* adds someone else's. Your folders and custom pictures are never included.
+- **Progress bars** with % and speed for every upload to the PS5 and every SteamGridDB download; SteamGridDB pictures are streamed through the PS5 and loaded only once.
 
 ### Installing and switching themes on the PS5
 - **🎨 ZhiThemes** in every tile's Options menu: switch theme, turn ZhiThemes off (*PS5 default*), install themes from a USB drive.

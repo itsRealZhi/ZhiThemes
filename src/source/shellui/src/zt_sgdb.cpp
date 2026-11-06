@@ -53,6 +53,9 @@ struct Sink {
   bool over;
   FILE *file = nullptr; /* written to a file instead (big pictures) */
   size_t got = 0;
+  CURL *curl = nullptr;
+  const std::function<bool(const char *, size_t, long, long long)> *chunk = nullptr; /* handed on instead */
+  bool stopped = false;
 };
 
 size_t on_data(char *ptr, size_t size, size_t n, void *user) {
@@ -63,6 +66,17 @@ size_t on_data(char *ptr, size_t size, size_t n, void *user) {
     return 0;
   }
   s->got += len;
+  if (s->chunk) {
+    long code = 0;
+    curl_off_t total = -1;
+    curl_easy_getinfo(s->curl, CURLINFO_RESPONSE_CODE, &code);
+    curl_easy_getinfo(s->curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &total);
+    if (!(*s->chunk)(ptr, len, code, (long long)total)) {
+      s->stopped = true;
+      return 0;
+    }
+    return len;
+  }
   if (s->file)
     return fwrite(ptr, 1, len, s->file) == len ? len : 0;
   s->body->append(ptr, len);
@@ -92,7 +106,8 @@ bool allowed(const std::string &url) {
 
 namespace {
 bool sgdb_fetch(const std::string &url, const std::string &key, std::string &body, FILE *file, long &http,
-                std::string &err, size_t max_bytes, long timeout_ms);
+                std::string &err, size_t max_bytes, long timeout_ms,
+                const std::function<bool(const char *, size_t, long, long long)> *chunk = nullptr);
 }
 
 bool zt_sgdb_get(const std::string &url, const std::string &key, std::string &body, long &http,
@@ -117,9 +132,17 @@ bool zt_sgdb_get_file(const std::string &url, const std::string &path, size_t &s
   return ok;
 }
 
+bool zt_sgdb_stream(const std::string &url, size_t max_bytes,
+                    const std::function<bool(const char *, size_t, long, long long)> &chunk, long &http,
+                    std::string &err) {
+  std::string unused;
+  return sgdb_fetch(url, "", unused, nullptr, http, err, max_bytes, 240000L, &chunk);
+}
+
 namespace {
 bool sgdb_fetch(const std::string &url, const std::string &key, std::string &body, FILE *file, long &http,
-                std::string &err, size_t max_bytes, long timeout_ms) {
+                std::string &err, size_t max_bytes, long timeout_ms,
+                const std::function<bool(const char *, size_t, long, long long)> *chunk) {
   body.clear();
   http = 0;
   if (!allowed(url)) {
@@ -145,7 +168,7 @@ bool sgdb_fetch(const std::string &url, const std::string &key, std::string &bod
   }
   CURL *c = g_curl;
   curl_easy_reset(c);
-  Sink sink{&body, max_bytes, false, file, 0};
+  Sink sink{&body, max_bytes, false, file, 0, c, chunk};
   struct curl_blob ca {
     const_cast<unsigned char *>(zt_sgdb_ca_start), (size_t)(zt_sgdb_ca_end - zt_sgdb_ca_start), CURL_BLOB_NOCOPY
   };
@@ -170,7 +193,7 @@ bool sgdb_fetch(const std::string &url, const std::string &key, std::string &bod
   if (headers)
     curl_slist_free_all(headers);
   if (rc != CURLE_OK) {
-    err = sink.over ? "answer too large" : curl_easy_strerror(rc);
+    err = sink.over ? "answer too large" : sink.stopped ? "stopped" : curl_easy_strerror(rc);
     zt_log("sgdb: %.160s failed: %s", url.c_str(), err.c_str());
     http = 0;
     return false;
@@ -191,6 +214,13 @@ bool zt_sgdb_get(const std::string &, const std::string &, std::string &body, lo
 
 bool zt_sgdb_get_file(const std::string &, const std::string &, size_t &size, long &http, std::string &err, size_t) {
   size = 0;
+  http = 0;
+  err = "not in this build";
+  return false;
+}
+
+bool zt_sgdb_stream(const std::string &, size_t, const std::function<bool(const char *, size_t, long, long long)> &,
+                    long &http, std::string &err) {
   http = 0;
   err = "not in this build";
   return false;

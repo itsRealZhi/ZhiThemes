@@ -244,6 +244,68 @@ void *asset_client(void *arg) {
   return nullptr;
 }
 
+/* GET /sgdb/img: the CDN picture handed on piece by piece (see there) */
+struct SgdbImgJob {
+  int fd;
+  std::string url;
+  const char *mime;
+};
+void sgdb_img_send(int fd, const std::string &url, const char *mime) {
+  bool head_sent = false, client_ok = true;
+  long http = 0, bad = 0;
+  std::string err;
+  const bool ok = zt_sgdb_stream(
+      url, 400u << 20,
+      [&](const char *p, size_t n, long code, long long total) -> bool {
+        if (g_web_quit)
+          return false;
+        if (!head_sent) {
+          if (code != 200) {
+            bad = code;
+            return false;
+          }
+          char head[320];
+          /* the CDN pictures never change: the editor's browser keeps them */
+          const int hn = total >= 0
+                             ? snprintf(head, sizeof(head),
+                                        "HTTP/1.0 200 OK\r\nContent-Type: %s\r\nContent-Length: %lld\r\n"
+                                        "Cache-Control: private, max-age=86400\r\nConnection: close\r\n\r\n",
+                                        mime, total)
+                             : snprintf(head, sizeof(head),
+                                        "HTTP/1.0 200 OK\r\nContent-Type: %s\r\n"
+                                        "Cache-Control: no-store\r\nConnection: close\r\n\r\n",
+                                        mime);
+          head_sent = true;
+          if (hn <= 0 || !send_all(fd, head, (size_t)hn)) {
+            client_ok = false;
+            return false;
+          }
+        }
+        if (!send_all(fd, p, n)) {
+          client_ok = false;
+          return false;
+        }
+        return true;
+      },
+      http, err);
+  if (!head_sent) {
+    const std::string why = bad ? "HTTP " + std::to_string(bad) : err.empty() ? std::to_string(http) : err;
+    reply(fd, 502, "Bad Gateway", "text/plain", "SteamGridDB: " + why);
+  } else if (!ok && client_ok) {
+    zt_log("sgdb: picture cut off: %s", err.c_str());
+  }
+}
+void *sgdb_img_client(void *arg) {
+  SgdbImgJob *j = (SgdbImgJob *)arg;
+  sgdb_img_send(j->fd, j->url, j->mime);
+  close(j->fd);
+  delete j;
+  pthread_mutex_lock(&g_asset_lock);
+  --g_asset_clients;
+  pthread_mutex_unlock(&g_asset_lock);
+  return nullptr;
+}
+
 void video_stop(); /* below */
 
 void handle(int fd) {
@@ -594,39 +656,29 @@ void handle(int fd) {
         /* also the full picture (the editor cuts the 16:9 background from it) */
         const char *mime = ext == "png" ? "image/png" : ext == "jpg" ? "image/jpeg" : ext == "webp" ? "image/webp"
                          : ext == "gif" ? "image/gif" : ext == "webm" ? "video/webm" : "video/mp4";
-        if (!zt_sgdb_get(url, "", out, http, err, 24u << 20) || http != 200) {
-          /* bigger (animated heroes): through a file, sent in pieces */
-          if (err != "answer too large")
-            return reply(fd, 502, "Bad Gateway", "text/plain", "SteamGridDB: " + (err.empty() ? std::to_string(http) : err));
-          static int big_n = 0;
-          zt_mkdirs(ZT_CACHE);
-          const std::string tmp = std::string(ZT_CACHE "/sgdb_big_") + std::to_string(++big_n % 4) + ".tmp";
-          size_t size = 0;
-          err.clear();
-          if (!zt_sgdb_get_file(url, tmp, size, http, err, 400u << 20) || http != 200) {
-            unlink(tmp.c_str());
-            return reply(fd, 502, "Bad Gateway", "text/plain", "SteamGridDB: " + (err.empty() ? std::to_string(http) : err));
-          }
-          zt_log("sgdb: big picture %zu bytes through %s", size, tmp.c_str());
-          char head[256];
-          const int hn = snprintf(head, sizeof(head),
-                                  "HTTP/1.0 200 OK\r\nContent-Type: %s\r\nContent-Length: %zu\r\n"
-                                  "Cache-Control: no-store\r\nConnection: close\r\n\r\n", mime, size);
-          const int bf = open(tmp.c_str(), O_RDONLY);
-          bool ok = bf >= 0 && hn > 0 && send_all(fd, head, (size_t)hn);
-          std::vector<char> chunk(256u << 10);
-          while (ok) {
-            const ssize_t n = read(bf, chunk.data(), chunk.size());
-            if (n <= 0)
-              break;
-            ok = send_all(fd, chunk.data(), (size_t)n);
-          }
-          if (bf >= 0)
-            close(bf);
-          unlink(tmp.c_str());
+        /* handed on as it comes from the CDN (no second download, the
+           editor sees the progress), from a thread of its own so the
+           editor's other requests do not wait behind a big picture */
+        auto *job = new SgdbImgJob{fd, url, mime};
+        pthread_t t;
+        pthread_mutex_lock(&g_asset_lock);
+        const bool room = g_asset_clients < 4;
+        if (room)
+          ++g_asset_clients;
+        pthread_mutex_unlock(&g_asset_lock);
+        if (room && pthread_create(&t, nullptr, sgdb_img_client, job) == 0) {
+          pthread_detach(t);
+          g_fd_taken = true;
           return;
         }
-        return reply(fd, 200, "OK", mime, out);
+        if (room) {
+          pthread_mutex_lock(&g_asset_lock);
+          --g_asset_clients;
+          pthread_mutex_unlock(&g_asset_lock);
+        }
+        sgdb_img_send(fd, job->url, job->mime);
+        delete job;
+        return;
       }
       std::string id = query_value(query, "id");
       bool ok_id = id.size() == 9;
