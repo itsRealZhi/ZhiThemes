@@ -551,6 +551,7 @@
     foldersRingColor: '',       /* frame of the highlighted game; empty = the focus frame colour (focusLine*) or white ('') */
     foldersRingWidth: 4,        /* thickness of that frame (4) */
     foldersColor: '',           /* background colour of the folder icon (mosaic, made by the editor); empty = dark blue ('') */
+    foldersAlpha: 1,            /* opacity of the folder icon background for folders without their own opacity, 0-1 (1) */
     foldersVertical: 'grid',    /* folder icon with vertical tiles: 'grid' (2x2 of tall covers), 'stack' (covers stacked) or 'square' (square folder, at the bottom of the tile) ('grid') */
     foldersHorizontal: 'grid',  /* folder picture of the Steam (horizontal) focused tile: 'grid' (4 covers 2:3 in a row), 'icons' (4 square icons in a row), 'stack' (2:3 covers overlapping) or 'square' (square icons, 2 rows) ('grid') */
     foldersBg: 'slices',        /* screen background of a focused folder, made by ZhiThemes from its first 4 games' art: 'slices', 'grid' (mosaic) or 'art' (the first game's art); empty = slices ('slices') */
@@ -3261,9 +3262,13 @@
       var alpha = parseFloat(head[5]);
       if (name && ids.length)
         out.push({ name: name, icon: (head[1] || THEME.foldersIcon || '').trim(), ids: ids, space: space, color: color,
-                   alpha: isNaN(alpha) ? 1 : alpha, pos: isNaN(pos) ? Math.round(THEME.foldersPosition) || 0 : pos });
+                   alpha: isNaN(alpha) ? folderAlphaDefault() : alpha, pos: isNaN(pos) ? Math.round(THEME.foldersPosition) || 0 : pos });
     });
     return out;
+  }
+  function folderAlphaDefault() {
+    var a = parseFloat(THEME.foldersAlpha);
+    return isNaN(a) ? 1 : Math.max(0, Math.min(1, a));
   }
   function folderOfGame(id) {
     var out = null;

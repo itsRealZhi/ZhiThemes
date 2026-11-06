@@ -2100,7 +2100,7 @@
       out.push({ name: name, icon: (head[1] || '').trim(), pos: isNaN(pos) ? null : pos,
                  space: /^m/i.test((head[3] || '').trim()) ? 'media' : 'game',
                  color: /^#[0-9a-f]{6}$/i.test((head[4] || '').trim()) ? head[4].trim() : '',
-                 alpha: isNaN(al) ? 1 : Math.max(0, Math.min(1, al)),
+                 alpha: isNaN(al) ? null : Math.max(0, Math.min(1, al)),
                  ids: part.slice(c + 1).split(',').map(function (t) { return t.trim(); }).filter(Boolean) });
     });
     return out;
@@ -2141,7 +2141,7 @@
     return list.map(function (f) {
       var name = f.name.replace(/[;:|,'"\\]/g, ' ').trim() || 'Folder';
       var parts = [f.icon || '', f.pos != null ? f.pos : '', f.space === 'media' ? 'media' : '',
-                   f.color || '', f.alpha != null && f.alpha !== 1 ? f.alpha : ''];
+                   f.color || '', f.alpha != null ? f.alpha : ''];
       while (parts.length && parts[parts.length - 1] === '') parts.pop();
       return name + (parts.length ? '|' + parts.join('|') : '') + ': ' + f.ids.join(', ');
     }).join('; ');
@@ -2200,6 +2200,11 @@
     var c = [n >> 16 & 255, n >> 8 & 255, n & 255].map(function (v) { return Math.round(v * k); });
     return 'rgb(' + c.join(',') + ')';
   }
+  function foldAlphaDef() {
+    var a = parseFloat(foldField('foldersAlpha'));
+    return isNaN(a) ? 1 : Math.max(0, Math.min(1, a));
+  }
+  function foldAlpha(f) { return f.alpha != null ? f.alpha : foldAlphaDef(); }
   function foldIsAuto(f) { return f.icon === 'auto' || /^zt_folder_/.test(f.icon || ''); }
   function foldHash(t) {
     var h = 5381;
@@ -2219,7 +2224,7 @@
   }
   function foldMosaicName(f) {
     var col = f.color || foldField('foldersColor') || '#24345a';
-    var alpha = f.alpha != null ? f.alpha : 1;
+    var alpha = foldAlpha(f);
     var more = f.ids.length > 3 ? '+' + (f.ids.length - 3) : '';
     return 'zt_folder_' + foldHash(f.ids.slice(0, 3).join(',') + col + alpha + (more ? more + 'b' : '')) + '.png';
   }
@@ -2265,7 +2270,7 @@
   }
   function foldMosaic(f) {
     var ids = f.ids.slice(0, 3), col = f.color || foldField('foldersColor') || '#24345a';
-    var alpha = f.alpha != null ? f.alpha : 1;
+    var alpha = foldAlpha(f);
     var name = foldMosaicName(f);
     if (foldBgs.indexOf(name) >= 0) return Promise.resolve(name);
     var S = 512, P = 28, G = 20, Q = (S - 2 * P - G) / 2;
@@ -2322,7 +2327,7 @@
   function showFolders(extra) {
     var rest = (extra || []).map(function (g) {
       return { name: g.name, fields: g.fields.filter(function (f) {
-        return f.key !== 'folders' && f.key !== 'foldersIcon' && f.key !== 'foldersPosition' && f.key !== 'foldersColor';
+        return f.key !== 'folders' && f.key !== 'foldersIcon' && f.key !== 'foldersPosition' && f.key !== 'foldersColor' && f.key !== 'foldersAlpha';
       }) };
     });
     showSections(rest);
@@ -2333,13 +2338,16 @@
       '<button id="frefresh">Refresh games</button><input id="fsearch" class="fold-search" type="search" ' +
       'placeholder="Search games…"><label class="btn" title="Background colour of the folder icons">Folder colour ' +
       '<input id="fcolor" type="color" style="width:34px;height:22px;border:0;background:none;vertical-align:middle"></label>' +
+      '<label class="btn" title="Opacity of the folder icons that have no opacity of their own">Opacity ' +
+      '<input id="falpha" type="range" min="0" max="1" step="0.05" style="width:90px;vertical-align:middle"> ' +
+      '<span id="falphav"></span></label>' +
       '<button id="fremake" title="Make the mosaic icons again">Remake icons</button></div><div class="fold-wrap"><div class="fold-box" id="fgames"></div>' +
       '<div id="ffolders"></div></div></section>');
     document.getElementById('fnew').onclick = function () {
       var list = foldParse(foldValue());
       var n = list.length + 1;
       while (list.some(function (f) { return f.name === 'Folder ' + n; })) n++;
-      list.push({ name: 'Folder ' + n, icon: 'auto', pos: 1, space: foldSpace, color: '', alpha: 1, ids: [] });
+      list.push({ name: 'Folder ' + n, icon: 'auto', pos: 1, space: foldSpace, color: '', alpha: null, ids: [] });
       foldSave(list);
     };
     document.getElementById('frefresh').onclick = function () { foldGames = null; loadFoldGames(); };
@@ -2353,6 +2361,11 @@
     var fc = document.getElementById('fcolor');
     fc.value = /^#[0-9a-f]{6}$/i.test(foldField('foldersColor')) ? foldField('foldersColor') : '#24345a';
     fc.onchange = function () { setField('foldersColor', jsString(fc.value)); foldSave(foldParse(foldValue())); };
+    var fa = document.getElementById('falpha'), fav = document.getElementById('falphav');
+    fa.value = foldAlphaDef();
+    fav.textContent = Math.round(fa.value * 100) + '%';
+    fa.oninput = function () { fav.textContent = Math.round(fa.value * 100) + '%'; };
+    fa.onchange = function () { setField('foldersAlpha', String(parseFloat(fa.value))); foldSave(foldParse(foldValue())); };
     document.getElementById('fremake').onclick = function () { foldSave(foldParse(foldValue())); };
     if (foldValue() === null) {
       document.getElementById('ffolders').innerHTML = '<p class="empty">This theme.js has no "folders" field (old version).</p>';
@@ -4355,17 +4368,18 @@
       };
       var fc = card.querySelector('.fc'), fa = card.querySelector('.fa'), fav = card.querySelector('.fav');
       fc.value = f.color || foldField('foldersColor') || '#24345a';
-      fa.value = f.alpha != null ? f.alpha : 1;
+      fa.value = foldAlpha(f);
       fav.textContent = Math.round(fa.value * 100) + '%';
       [fc, fa].forEach(function (el) { el.onclick = function (ev) { ev.stopPropagation(); }; });
       fa.oninput = function () { fav.textContent = Math.round(fa.value * 100) + '%'; };
-      var look = function () {
+      var look = function (k, v) {
         var l = foldParse(foldValue());
-        l[i].color = fc.value; l[i].alpha = parseFloat(fa.value);
+        l[i][k] = v;
         if (!foldIsAuto(l[i])) l[i].icon = 'auto';
         foldSave(l);
       };
-      fc.onchange = look; fa.onchange = look;
+      fc.onchange = function () { look('color', fc.value); };
+      fa.onchange = function () { look('alpha', parseFloat(fa.value)); };
       var fu = card.querySelector('.fu'), ff = card.querySelector('.ff');
       fu.onclick = function (ev) { ev.stopPropagation(); ff.click(); };
       ff.onchange = function () {
@@ -4634,7 +4648,7 @@
     folderTitle: ['foldersTitle', 'folderTitleSize', 'folderTitleColor', '#Animation', 'animFolders', 'animFolderClose', 'animToast'],
     folderStrip: ['#Games', 'foldersStripMax', 'foldersStripGap', 'foldersStripAbove', 'foldersOpenWithX', 'foldersRingColor', 'foldersRingWidth',
                   '#Background', 'foldersStripBgOn', 'foldersStripBg', 'foldersStripBgOpacity', 'foldersStripBgPadding', 'foldersStripBgCorners',
-                  '#Folder tile', 'foldersPosition', 'foldersColor', 'foldersVertical', 'foldersHorizontal', 'foldersBg',
+                  '#Folder tile', 'foldersPosition', 'foldersColor', 'foldersAlpha', 'foldersVertical', 'foldersHorizontal', 'foldersBg',
                   '#Animation', 'animFolders', 'animFolderClose', 'animToast', '#Options menu', 'folderMenu'],
     optionsMenu: ['#Look', 'menuNoDim', 'menuBgColor', 'menuBgOpacity', 'menuCorners', 'menuItemCorners',
                   '#Items', 'menuOffline', 'menuHideIds', 'folderMenu', 'favMenu'],

@@ -12,7 +12,7 @@ Alpha: made on firmware **9.60**; also seen working on **13.60** by a tester. Ot
 - **Animated tiles and backgrounds:** animated WebP / APNG / MP4 / WebM become a still picture plus an MP4 the PS5 plays on the focused tile, with optional in-between frames for smooth motion.
 - **Focus frame:** colours, glow, rainbow, shape.
 - **Game names:** the PS5 game title, the tile title, or a *fake title* placed anywhere on the screen; game logos instead of names.
-- **Folders:** game folders on the Home, shown as a mosaic, stacked covers or icons, with their own background.
+- **Folders:** game folders on the Home, shown as a mosaic, stacked covers or icons, with their own background; colour and opacity per folder or one default for all.
 - **Extra tabs** next to Games / Media: *Recently played*, *Favourites* (optionally left of Games), *Never played*; add or remove favourites from the Options menu. An empty Favourites tab says how to add one.
 - **Top bar:** tabs aligned left, centre or right inside a box (centre grows to both sides), L1 / R1 icons next to them, controller buttons in any colour.
 - **Game / App Library tile:** its games can stay hidden under the row until you open it.
