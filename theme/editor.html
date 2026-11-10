@@ -510,6 +510,13 @@
     tabsInactiveOpacity: ['Inactive opacity', 'Opacity of the tab that is not selected'],
     tabsColor: ['Tab colour', 'Text colour; empty = stock'],
     tabsFontStyle: ['Tab font style', 'Normal = the System font (or the PS5 one); Bold / Italic = the PS5 bold and italic'],
+    tabsIconsOn: ['Icons instead of names', 'Each tab shows an icon, no text. Colour = tab colour, not selected = inactive opacity'],
+    tabsIconSize: ['Tab icon size', 'Size of the tab icons in px'],
+    tabsGameIcon: ['Games icon', "System icon name (e.g. 'game') or an uploaded .png"],
+    tabsMediaIcon: ['Media icon', "System icon name (e.g. 'music_and_video') or an uploaded .png"],
+    tabsRecentIcon: ['Recently played icon', "System icon name (e.g. 'history') or an uploaded .png"],
+    tabsFavIcon: ['Favourites icon', "System icon name (e.g. 'favorite') or an uploaded .png"],
+    tabsNeverIcon: ['Never played icon', "System icon name (e.g. 'new') or an uploaded .png"],
     tabsGroup: ['Tabs group', 'Icons and a background glued to the tabs: they follow the text in any language'],
     tabsGroupLeft: ['Left icon', "Controller button ('l1'...), system icon or an uploaded .png; empty = none"],
     tabsGroupRight: ['Right icon', "Controller button ('r1'...), system icon or an uploaded .png; empty = none"],
@@ -889,7 +896,9 @@
     particlesStyle: ['Particle style', 'Built-in styles (from AniketosHEN). With a style: count, speed, scale and hue count; size, colour, opacity and picture are for the dots'],
     particlesScale: ['Particle scale', 'Built-in style: size of its particles, 0.25-3'],
     particlesHue: ['Particle hue', 'Built-in style: turn its colours round the colour wheel, 0-359 degrees (0 = its own colours)'],
-    wallpaperOn: ['Custom wallpaper', 'Your image everywhere (Home, hubs, library), or your .mp4 video behind the Home; off = game art'],
+    bgClean: ['Clean background', 'Only the stock system background (light in the top left corner) everywhere: Home, game pages, folders, games without art. Wins over the wallpaper, own backgrounds and game art'],
+    bgCleanTry: ['Clean background test', 'How the clean background is asked for: 2 empty (best), 3 no picture (basemat None), 1 missing picture (black for a few seconds after a reload), 4 transparent picture (all black)'],
+    wallpaperOn: ['Custom wallpaper','Your image everywhere (Home, hubs, library), or your .mp4 video behind the Home; off = game art'],
     wallpaper: ['Wallpaper image or video', 'Uploaded from the editor (.png / .jpg, 1920×1080; .mp4 = video behind the Home, H.264 1080p)'],
     wallpaperVideoSound: ['Video sound', '.mp4 wallpaper: play its sound (the Home music stops)'],
     wallpaperVideoVolume: ['Video volume', '.mp4 wallpaper: 0-1'],
@@ -1089,7 +1098,7 @@
   var ADV = false;
   try { ADV = localStorage.getItem('zt.advanced') === '1'; } catch (e) {}
   /* technical fields: only with Advanced */
-  var ADV_ONLY = /^(fixDetails|measureScreen|rowFastRepeat|rowRepeatWindow|fakeTrophiesFast|iconsNav)$/;
+  var ADV_ONLY = /^(bgCleanTry|fixDetails|measureScreen|rowFastRepeat|rowRepeatWindow|fakeTrophiesFast|iconsNav)$/;
   /* an advanced field = a technical one (ADV_ONLY) or one that is under
      "More options" in every Visual module it is in. Fields in no module
      (Settings & Trophies, Folders, Tiles...) are basic. */
@@ -1440,7 +1449,7 @@
       fsel.value = fnow;
       fsel.onchange = function () { setField(f.key, jsString(fsel.value)); mark(jsString(fsel.value)); };
       ctl.appendChild(fsel);
-    } else if (/^(search|settings)Icon$|^deco\dIcon$|^tabsGroup(Left|Right)$|^particlesImage$/.test(f.key)) {
+    } else if (/^(search|settings)Icon$|^deco\dIcon$|^tabs(Game|Media|Recent|Fav|Never)Icon$|^tabsGroup(Left|Right)$|^particlesImage$/.test(f.key)) {
       /* a system icon name (typed, with suggestions) or an image uploaded from
          the PC (/data/ZhiThemes/backgrounds), picked from the list */
       var itx = document.createElement('input');
@@ -4480,7 +4489,7 @@
     { id: 'tabs', name: 'Tabs', app: 'home', guess: [84, 0, 611, 126],
       dx: [['tabsX', 1]], dy: [['tabsY', 1]], mx: 'tabsX', my: 'tabsY',
       hideKey: 'hideTabs', extra: ['tabsAlign', 'tabsWidth', 'tabsSpacing', 'tabsFontSize', 'tabsFontStyle', 'tabsInactiveOpacity', 'tabsSameWeight', 'tabsColor',
-      'topBarOpacity', 'tabsGroup', 'tabsGroupLeft', 'tabsGroupRight', 'tabsGroupIconSize', 'tabsGroupIconGap',
+      'topBarOpacity', 'tabsIconsOn', 'tabsIconSize', 'tabsGameIcon', 'tabsMediaIcon', 'tabsRecentIcon', 'tabsFavIcon', 'tabsNeverIcon', 'tabsGroup', 'tabsGroupLeft', 'tabsGroupRight', 'tabsGroupIconSize', 'tabsGroupIconGap',
       'tabsGroupIconColor', 'tabsGroupIconOpacity', 'tabsGroupBgOn', 'tabsGroupBg', 'tabsGroupBgOpacity',
       'tabsGroupHeight', 'tabsGroupPadding', 'tabsGroupCorners', 'tabsPillOn', 'tabsPillColor', 'tabsPillOpacity',
       'tabsPillCorners', 'tabsPillPadX', 'tabsPillPadY', 'tabsPillBorderColor', 'tabsPillBorderWidth', 'tabsPillTextColor'] },
@@ -4612,6 +4621,7 @@
      screen (VIRT) are in the list under "Whole screen". */
   var MODULE_FIELDS = {
     tabs: ['#Look', 'tabsAlign', 'tabsWidth', 'tabsSpacing', 'tabsFontSize', 'tabsFontStyle', 'tabsColor', 'tabsInactiveOpacity', 'tabsSameWeight', 'topBarOpacity',
+           '#Icons instead of names', 'tabsIconsOn', 'tabsIconSize', 'tabsGameIcon', 'tabsMediaIcon', 'tabsRecentIcon', 'tabsFavIcon', 'tabsNeverIcon',
            '#Selected tab (pill)', 'tabsPillOn', 'tabsPillColor', 'tabsPillOpacity', 'tabsPillCorners', 'tabsPillPadX', 'tabsPillPadY',
            'tabsPillBorderColor', 'tabsPillBorderWidth', 'tabsPillTextColor',
            '#Group (icons + background)', 'tabsGroup', 'tabsGroupLeft', 'tabsGroupRight', 'tabsGroupIconSize', 'tabsGroupIconGap',
@@ -4669,7 +4679,7 @@
               '#Colours', 'buttonBgColor', 'buttonBgFocusColor', 'buttonTextColor', 'buttonTextFocusColor', '#Animation', 'animButtons']
   };
   var VIRT = [
-    { id: 'scrBackground', name: 'Background', keys: ['#Wallpaper', 'wallpaperOn', 'wallpaper', 'wallpaperVideoSound', 'wallpaperVideoVolume', 'customBgOn',
+    { id: 'scrBackground', name: 'Background', keys: ['#Clean', 'bgClean', 'bgCleanTry', '#Wallpaper', 'wallpaperOn', 'wallpaper', 'wallpaperVideoSound', 'wallpaperVideoVolume', 'customBgOn',
       '#Darken', 'bgDim', 'bgDimColor', 'bgColor', 'bgGradient', 'bgGradientHeight', 'bgGradientCurve', 'bgGradientSteps',
       'bgVignette', 'bgVignetteSize', 'bgEdges', 'bgEdgesHeight', '#Overlay picture', 'bgOverlayOn', 'bgOverlay', 'bgOverlayOpacity'] },
     { id: 'scrParticles', name: 'Particles', keys: ['particlesOn', 'particlesStyle', 'particlesCount', 'particlesSpeed', 'particlesScale', 'particlesHue', 'particlesOpacity',
@@ -5103,6 +5113,46 @@
   function tabsJustify(c) {
     return { center: 'center', right: 'flex-end' }[tabsAligned(c) ? c.tabsAlign : ''] || 'flex-start';
   }
+  /* tab icons (tabsIconsOn): rough drawings of the system icons the PS5
+     draws; an uploaded .png shows itself */
+  var TAB_ICON_SVG = {
+    game: '<path d="M14 17h20c5 0 8 4 9 10l1 6c1 4-3 6-6 3l-4-4H14l-4 4c-3 3-7 1-6-3l1-6c1-6 4-10 9-10z"/><path d="M15 23v6M12 26h6"/><circle cx="32" cy="24" r="1.4"/><circle cx="35" cy="28" r="1.4"/>',
+    game_list: '<rect x="8" y="10" width="14" height="12" rx="2"/><rect x="26" y="10" width="14" height="12" rx="2"/><rect x="8" y="26" width="14" height="12" rx="2"/><rect x="26" y="26" width="14" height="12" rx="2"/>',
+    music_and_video: '<rect x="6" y="10" width="36" height="28" rx="4"/><path d="M21 18v12l10-6z"/>',
+    app_library_media: '<rect x="6" y="10" width="36" height="28" rx="4"/><path d="M21 18v12l10-6z"/>',
+    history: '<path d="M10 24a14 14 0 1 0 4-10"/><path d="M8 10v6h6"/><path d="M24 16v9l6 4"/>',
+    favorite: '<path d="M24 8l4.7 9.6 10.6 1.5-7.7 7.5 1.8 10.5L24 32.1l-9.4 5 1.8-10.5-7.7-7.5 10.6-1.5z"/>',
+    'new': '<path d="M24 6l3 12 12 3-12 3-3 12-3-12-12-3 12-3z"/><path d="M37 30l1.5 4.5L43 36l-4.5 1.5L37 42l-1.5-4.5L31 36l4.5-1.5z"/>'
+  };
+  function tabBarIcon(v, size, col) {
+    v = String(v || '').trim();
+    if (/\.(png|jpe?g)$/i.test(v))
+      return '<img alt="" src="/asset?kind=icons&name=' + encodeURIComponent(v) + '" style="width:' + size + 'px;height:' + size + 'px;object-fit:contain">';
+    var p = TAB_ICON_SVG[v.toLowerCase()];
+    if (p)
+      return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 48 48" fill="none" stroke="' + html(col) +
+             '" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">' + p + '</svg>';
+    return '<span style="display:inline-grid;place-items:center;width:' + size + 'px;height:' + size + 'px;font-size:11px;border:2px dashed ' + html(col) +
+           ';border-radius:8px;overflow:hidden;text-align:center;line-height:1.1">' + html(v || '?') + '</span>';
+  }
+  /* the tabs in the PS5 order: Games, Media, then the extra tabs on
+     (Favourites first with tabFavFirst); the first one is the selected one */
+  function tabIconsHtml(c, col) {
+    var tabs = [['tabsGameIcon', 'game'], ['tabsMediaIcon', 'music_and_video']];
+    if (c.tabRecentOn) tabs.push(['tabsRecentIcon', 'history']);
+    if (c.tabFavOn) tabs.push(['tabsFavIcon', 'favorite']);
+    if (c.tabNeverOn) tabs.push(['tabsNeverIcon', 'new']);
+    if (c.tabFavOn && c.tabFavFirst) {
+      var f = tabs.splice(tabs.length - (c.tabNeverOn ? 2 : 1), 1)[0];
+      tabs.unshift(f);
+    }
+    var size = num(c.tabsIconSize) || 48, gap = num(c.tabsSpacing);
+    return tabs.map(function (t, i) {
+      var v = typeof c[t[0]] === 'string' ? c[t[0]] : t[1];
+      return '<span style="display:inline-flex;padding:8px;' + (i ? 'margin-left:' + gap + 'px;opacity:' + num(c.tabsInactiveOpacity) : '') + '">' +
+             tabBarIcon(v, size, col) + '</span>';
+    }).join('');
+  }
   function tabsAligned(c) {
     return c.tabsAlign === 'left' || c.tabsAlign === 'center' || c.tabsAlign === 'right';
   }
@@ -5110,7 +5160,8 @@
     var s = '';
     if (e.id === 'tabs') {
       var fs = c.tabsFontSize || 32, col = c.tabsColor || '#fff';
-      var tabsTxt = '<b style="padding:8px">Games</b><span style="padding:8px;margin-left:' + num(c.tabsSpacing) + 'px;opacity:' + num(c.tabsInactiveOpacity) + '">Media</span>';
+      var tabsTxt = c.tabsIconsOn ? tabIconsHtml(c, col)
+        : '<b style="padding:8px">Games</b><span style="padding:8px;margin-left:' + num(c.tabsSpacing) + 'px;opacity:' + num(c.tabsInactiveOpacity) + '">Media</span>';
       if (c.tabsGroup) {
         /* the group: [bg [L1] Games Media [R1]], fixed height, centred in the 126 px bar */
         var gsz = num(c.tabsGroupIconSize) || 40, ggap = num(c.tabsGroupIconGap), gh = num(c.tabsGroupHeight) || 72;
@@ -5339,9 +5390,13 @@
     screen.className = 'screen' + (V.mode === 'boxes' ? ' boxes' : '');
     /* the wallpaper set in the theme (image or .mp4 video) and the
        overlay, as on the PS5; without one, the screenshot loaded here */
-    var wall = wallpaperOf(c);
-    var bg = wall ? '' : stored('theme-bg-' + V.scene);
-    screen.style.backgroundImage = bg ? 'url("' + bg + '")' : '';
+    var wall = c.bgClean ? '' : wallpaperOf(c);
+    var bg = wall || c.bgClean ? '' : stored('theme-bg-' + V.scene);
+    /* bgClean: the stock system background, a dark base with the light in
+       the top left corner (drawn roughly) */
+    screen.style.backgroundImage = c.bgClean
+      ? 'radial-gradient(ellipse 1100px 700px at 8% 0%, rgba(120,150,255,.45), rgba(40,60,160,.18) 45%, transparent 75%), linear-gradient(160deg,#141a3a,#05060f 70%)'
+      : bg ? 'url("' + bg + '")' : '';
     if (wall) screen.appendChild(wallLayer(wall));
     if (c.bgOverlayOn && typeof c.bgOverlay === 'string' && c.bgOverlay && !isVideoName(c.bgOverlay))
       screen.insertAdjacentHTML('beforeend', '<img alt="" src="' + assetUrl(c.bgOverlay) + '" style="position:absolute;inset:0;' +
@@ -5437,7 +5492,7 @@
   /* the main fields of each module (the element's on / hide / position /
      size fields are always shown) */
   var BASIC = {
-    tabs: ['tabsSpacing', 'tabsFontSize', 'tabsColor', 'tabsPillOn', 'tabRecentOn', 'tabFavOn', 'tabNeverOn'],
+    tabs: ['tabsSpacing', 'tabsFontSize', 'tabsColor', 'tabsIconsOn', 'tabsIconSize', 'tabsGameIcon', 'tabsMediaIcon', 'tabsRecentIcon', 'tabsFavIcon', 'tabsNeverIcon', 'tabsPillOn', 'tabRecentOn', 'tabFavOn', 'tabNeverOn'],
     playInfo: ['playInfoFontSize', 'playInfoColor'],
     user: ['userFontSize', 'userColor', 'avatarOn', 'avatar'],
     topBarBgEl: ['topBarBg', 'topBarBgOpacity', 'topBarBgCorners'],
@@ -5461,7 +5516,7 @@
     footerBgEl: ['footerBg', 'footerBgOpacity', 'footerBgCorners'],
     box1: ['box1', 'box1Opacity', 'box1Corners'], box2: ['box2', 'box2Opacity', 'box2Corners'], box3: ['box3', 'box3Opacity', 'box3Corners'],
     deco1: ['deco1Icon', 'deco1Color'], deco2: ['deco2Icon', 'deco2Color'], deco3: ['deco3Icon', 'deco3Color'], deco4: ['deco4Icon', 'deco4Color'],
-    scrBackground: ['wallpaperOn', 'wallpaper', 'bgDim', 'bgGradient', 'bgColor'],
+    scrBackground: ['bgClean', 'wallpaperOn', 'wallpaper', 'bgDim', 'bgGradient', 'bgColor'],
     scrParticles: ['particlesOn', 'particlesStyle', 'particlesCount'],
     scrFonts: ['systemFont'],
     scrAnimations: ['animationSpeed', 'animTabs', 'animNames', 'animFolders', 'animButtons']
@@ -6069,7 +6124,7 @@
      user's own. */
   var PACK_PERSONAL = ['folders', 'foldersIcon', 'customTileChoice', 'customBgChoice'];
   var PACK_WALL = /^(wallpaper|bgOverlay|sysBg)$/;
-  var PACK_ICON = /^(search|settings)Icon$|^deco\dIcon$|^tabsGroup(Left|Right)$|^footerIcon\d$|^particlesImage$/;
+  var PACK_ICON = /^(search|settings)Icon$|^deco\dIcon$|^tabs(Game|Media|Recent|Fav|Never)Icon$|^tabsGroup(Left|Right)$|^footerIcon\d$|^particlesImage$/;
   /* a picture/video field goes into the pack only when the theme shows
      it (a wallpaper or Settings video left in an off field stays out) */
   function packUsed(k, vals) {
@@ -6081,6 +6136,7 @@
     var m = /^deco(\d)Icon$/.exec(k);
     if (m) return on('deco' + m[1] + 'On');
     if (/^tabsGroup(Left|Right)$/.test(k)) return on('tabsGroup');
+    if (/^tabs(Game|Media|Recent|Fav|Never)Icon$/.test(k)) return on('tabsIconsOn');
     if (/^footerIcon\d$/.test(k)) return on('footer');
     return true;
   }
@@ -7000,6 +7056,7 @@
         setField(bgUploadKey, jsString(name));
         if (/^deco\dIcon$/.test(bgUploadKey)) setField(bgUploadKey.replace('Icon', 'On'), 'true');
         else if (/^tabsGroup(Left|Right)$/.test(bgUploadKey)) setField('tabsGroup', 'true');
+        else if (/^tabs(Game|Media|Recent|Fav|Never)Icon$/.test(bgUploadKey)) setField('tabsIconsOn', 'true');
         else if (bgUploadKey === 'particlesImage') setField('particlesOn', 'true');
         else if (!/Icon$/.test(bgUploadKey))
           setField(bgUploadKey === 'bgOverlay' ? 'bgOverlayOn' : bgUploadKey === 'sysBg' ? 'sysBgOn' : 'wallpaperOn', 'true');

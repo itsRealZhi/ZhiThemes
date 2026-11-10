@@ -44,6 +44,13 @@
     tabsSameWeight: true,    /* the tabs not selected in the same weight as the selected one (stock: bold / normal), so the bar does not move when the tab changes (true) */
     tabsColor: '',           /* text colour, e.g. '#2fd0e6'; empty = stock ('') */
     tabsFontStyle: '',       /* font: 'bold', 'italic', 'bold italic' or 'element font'; empty = stock ('') */
+    tabsIconsOn: false,      /* icons instead of the tab names (Games, Media and the extra tabs) (false) */
+    tabsIconSize: 48,        /* size of the tab icons in px (48) */
+    tabsGameIcon: 'game',    /* Games tab: system icon name or an uploaded .png ('game') */
+    tabsMediaIcon: 'music_and_video', /* Media tab ('music_and_video') */
+    tabsRecentIcon: 'history',/* Recently played tab ('history') */
+    tabsFavIcon: 'favorite', /* Favourites tab ('favorite') */
+    tabsNeverIcon: 'new',    /* Never played tab ('new') */
     tabsGroup: false,        /* group: icons + background glued to the tabs, follow the text in any language (false) */
     tabsGroupLeft: 'l1',     /* group: icon on the left: button, system icon or .png; empty = none ('l1') */
     tabsGroupRight: 'r1',    /* group: icon on the right; empty = none ('r1') */
@@ -321,6 +328,8 @@
     particlesStyle: '',         /* built-in style ('' = the dots or picture above): snowfall, sakura, autumn_leaves, fireflies, rain, bokeh, golden_dust, embers, aurora, magic_sparkles, starfield, meteor_shower, warp, nebula, digital_rain, ps_symbols, confetti, bubbles, hearts, neon_wave, xmas_lights, xmas_eve, xmas_ornaments ('') */
     particlesScale: 1,          /* built-in style: size of its particles, 0.25-3 (1) */
     particlesHue: 0,            /* built-in style: turn its colours round the colour wheel, 0-359 degrees (0) */
+    bgClean: false,             /* clean background: only the stock system background (light in the top left corner) everywhere; no wallpaper, game art, own backgrounds or folder backgrounds (false) */
+    bgCleanTry: 2,              /* how the clean background is asked for: 2 empty uri (instant), 3 no uri + basemat None (instant), 1 a missing picture (black a few seconds after a reload), 4 transparent picture (all black) (2) */
     wallpaperOn: false,         /* use your wallpaper everywhere (Home, hubs, library); off = game art (false) */
     wallpaper: '',              /* your wallpaper, uploaded from the editor; an .mp4 plays as a video behind the Home ('') */
     wallpaperVideoSound: false, /* .mp4 wallpaper: play its sound (false) */
@@ -3428,10 +3437,10 @@
   /* with your wallpaper on (picture or video) a folder shows it too,
      not a picture of its own */
   function wallpaperSet() {
-    return !!(THEME.wallpaperOn && typeof THEME.wallpaper === 'string' && THEME.wallpaper);
+    return !!(THEME.wallpaperOn && !THEME.bgClean && typeof THEME.wallpaper === 'string' && THEME.wallpaper);
   }
   function folderBgUri(img) {
-    if (APP !== 'home' || wallpaperSet() || !T.fbgFirst || !T.fbgReady || !img || typeof img !== 'object') return '';
+    if (APP !== 'home' || THEME.bgClean || wallpaperSet() || !T.fbgFirst || !T.fbgReady || !img || typeof img !== 'object') return '';
     var m = /([A-Z]{4}\d{5})/.exec(String(img.uri || '')), name = m && T.fbgFirst[m[1]];
     return name && T.fbgReady[name] ? 'file://' + ztPath('cache/folderbg', name) : '';
   }
@@ -4367,6 +4376,52 @@
                                   marginLeft: -padX, marginRight: Math.max(0, spacing - padX) }];
     if (!T.done['tabs pill']) done('tabs pill');
   }
+  /* tabsIconsOn: each tab shows an icon instead of its name. The tab's Text
+     stays (absolute, invisible: tabSeen / tabPill read it and the screen
+     reader keeps the name); the icon in its place gives the tab its size,
+     so the pill, the worm and the focus frame follow it. Colour = the tab
+     colour (tabsColor; the selected one tabsPillTextColor with the pill),
+     the tabs not selected at tabsInactiveOpacity, like the names */
+  var TAB_ICON_KEY = { game: 'tabsGameIcon', media: 'tabsMediaIcon', zt_recent: 'tabsRecentIcon',
+                       zt_fav: 'tabsFavIcon', zt_never: 'tabsNeverIcon' };
+  var TAB_ICON_STOCK = { game: 'game', media: 'music_and_video', zt_recent: 'history', zt_fav: 'favorite', zt_never: 'new' };
+  function tabIcons(props) {
+    var React = T.React, rn = T.rn;
+    if (!THEME.tabsIconsOn || !React || !rn || typeof props.name !== 'string' ||
+        props.name.indexOf('space-switcher-') !== 0 || props.focusable !== true)
+      return;
+    var sid = props.name.slice('space-switcher-'.length);
+    var key = TAB_ICON_KEY[sid] || TAB_ICON_KEY[sid.replace(/^.*-/, '')];
+    if (!key) return;
+    var kids = Array.isArray(props.children) ? props.children : [props.children];
+    var at = -1;
+    for (var i = 0; i < kids.length; i++) {
+      var k = kids[i];
+      if (!k || !k.props) continue;
+      if (k.key === 'zt-tab-icon') return;
+      if (Array.isArray(k.props.style) && (k.key === 'zt-tab-text' || kids.length === 1)) at = i;
+    }
+    if (at < 0) return;
+    var text = kids[at], on = !text.props.style[1];
+    var v = typeof THEME[key] === 'string' && THEME[key].trim() ? THEME[key].trim() : TAB_ICON_STOCK[sid.replace(/^.*-/, '')];
+    var size = Math.max(16, Number(THEME.tabsIconSize) || 48);
+    var color = (on && THEME.tabsPillOn && THEME.tabsPillTextColor) || THEME.tabsColor || '#ffffff';
+    var icon;
+    if (/\.(png|jpe?g)$/i.test(v) || v.charAt(0) === '/')
+      icon = React.createElement(rn.Image, { source: { uri: 'file://' + iconValue(v) }, resizeMode: 'contain',
+                                             style: { width: size, height: size, tintColor: color } });
+    else
+      icon = decoIcon(v, size, color);
+    if (!icon) return;
+    var op = on ? 1 : (THEME.tabsInactiveOpacity == null ? 0.6 : THEME.tabsInactiveOpacity);
+    var out = kids.slice();
+    out.splice(at, 1,
+      React.createElement(rn.View, { key: 'zt-tab-icon', pointerEvents: 'none', focusable: false,
+                                     style: { width: size, height: size, opacity: op } }, icon),
+      React.cloneElement(text, { key: 'zt-tab-text', style: text.props.style.concat([{ position: 'absolute', opacity: 0 }]) }));
+    props.children = out;
+    if (!T.done['tab icons']) done('tab icons (' + sid + ' ' + v + ')');
+  }
   /* ---- the tab panel as a worm ----
      One panel behind the tabs (first child of the 'space-switcher' row)
      instead of one inside the selected tab. Each tab's place comes from its
@@ -5092,7 +5147,7 @@
     img.uri = uri;
     if (!img.type) img.type = 'Fade';
     T.lastShownBg = img.uri;
-    try { T.setBackground.call(T.sceneControl, img); } catch (e) { log('folder background error: ' + e); }
+    try { T.setBackground.call(T.sceneControl, THEME.bgClean ? cleanBg(img) : img); } catch (e) { log('folder background error: ' + e); }
     /* Home trophies / title: the focused id comes from the background uri */
     T.focusedId = g.id;
 
@@ -8542,7 +8597,8 @@
   /* the file behind Settings and Trophies: their own (sysBg) or,
      with sysBgWallpaper, the Home wallpaper; an .mp4 plays as a video */
   function sysBgName() {
-    if (THEME.sysBgWallpaper && THEME.wallpaperOn && typeof THEME.wallpaper === 'string' && THEME.wallpaper)
+    if (THEME.bgClean) return '';
+    if (THEME.sysBgWallpaper && THEME.wallpaperOn && !THEME.bgClean && typeof THEME.wallpaper === 'string' && THEME.wallpaper)
       return THEME.wallpaper;
     var n = THEME.sysBg;
     return THEME.sysBgOn && typeof n === 'string' ? n : '';
@@ -9404,6 +9460,7 @@
         tabItem(props);
         tabSeen(props);
         tabPill(props);
+        tabIcons(props);
         tabEnds(props);
         tabWorm(props);
         barReveal(props);
@@ -9634,7 +9691,7 @@
   }
   function wallpaperUri() {
     var n = THEME.wallpaper;
-    if (!THEME.wallpaperOn || typeof n !== 'string' || !n || isVideo(n)) return null;
+    if (!THEME.wallpaperOn || THEME.bgClean || typeof n !== 'string' || !n || isVideo(n)) return null;
     return 'file://' + (n.charAt(0) === '/' ? n : ztPath('wallpapers', n));
   }
   /* .mp4 wallpaper: the video player only plays http, so ZhiThemes serves
@@ -9644,11 +9701,11 @@
      C++ player in the system background layer plays it for the Home too
      (one player, no restart between screens); the Home's own video is off */
   function nativeVideoShared() {
-    return !!(THEME.sysOn && THEME.sysBgWallpaper && THEME.wallpaperOn && isVideo(THEME.wallpaper));
+    return !!(THEME.sysOn && THEME.sysBgWallpaper && THEME.wallpaperOn && !THEME.bgClean && isVideo(THEME.wallpaper));
   }
   function videoUri() {
     var n = THEME.wallpaper;
-    if (!THEME.wallpaperOn || typeof n !== 'string' || !isVideo(n) || nativeVideoShared()) return null;
+    if (!THEME.wallpaperOn || THEME.bgClean || typeof n !== 'string' || !isVideo(n) || nativeVideoShared()) return null;
     return 'http://127.0.0.1:4445/v/' + n.split('/').pop();
   }
   /* The Home asks for the background of every focused tile
@@ -9730,7 +9787,7 @@
   }
   var bgLogs = 0;
   function customBgUri(img) {
-    if (THEME.customBgOn === false || !img || typeof img !== 'object') return null;
+    if (THEME.customBgOn === false || THEME.bgClean || !img || typeof img !== 'object') return null;
     var m = /\/([A-Za-z]{4}\d{5})(?:_\d+)?\//.exec(String(img.uri || ''));
     if (!m || /^NPXS/i.test(m[1])) return null;
     var key = m[1].toUpperCase(), pics = bgPics(key), c = bgChoice(key);
@@ -9749,7 +9806,7 @@
      Not with your wallpaper on (the wallpaper wins) nor in a folder. */
   var bgVideoFiles = null;
   function bgVideosUsed() {
-    if (APP !== 'home' || THEME.customBgOn === false || THEME.tileAnimOn === false) return false;
+    if (APP !== 'home' || THEME.customBgOn === false || THEME.bgClean || THEME.tileAnimOn === false) return false;
     if (!bgVideoFiles) {
       bgVideoFiles = {};
       var n = 0;
@@ -9791,7 +9848,7 @@
      game with one, keeps the game's own background. */
   var sameBgLogs = 0, bgTrace = 0, keepLogs = 0;
   function sameGameBg(img) {
-    if (THEME.customBgOn === false || T.folderSel || wallpaperSet()) return img;
+    if (THEME.customBgOn === false || THEME.bgClean || T.folderSel || wallpaperSet()) return img;
     var uri = img && typeof img === 'object' ? String(img.uri || '') : '';
     if (/\/custombg\//.test(uri)) {
       var mo = /([A-Z]{4}\d{5})_16x9_/.exec(uri);
@@ -9820,6 +9877,42 @@
     if (sameBgLogs++ < 6) log('background without a game (' + (uri || 'none') + ') -> own one of ' + id);
     return copy;
   }
+  /* bgClean: every background request (Home, hub, folders, games without
+     art) becomes the stock system background (BGLayer base + light).
+     bgCleanTry: 2 = an empty uri (default) and 3 = no uri + basemat None
+     show it at once; 1 = a missing picture shows it only after the PS5
+     gives up loading (black for a few seconds after a reload); 4 = a
+     transparent picture is drawn over a black base. The game's fallback
+     picture (bg_hub_default) is never left in. */
+  var cleanLogs = 0;
+  function cleanBg(img) {
+    var copy = {};
+    if (img && typeof img === 'object') for (var k in img) copy[k] = img[k];
+    var mode = Number(THEME.bgCleanTry) || 2;
+    delete copy.blurUri;
+    if (mode === 3) {
+      delete copy.uri;
+      delete copy.fallbackUri;
+      copy.basemat = 'None';
+    } else if (mode === 4) {
+      /* a transparent picture: drawn over a black base (all black) */
+      copy.uri = 'file://' + ZT_ASSETS + 'particles/bg_clear.png';
+      copy.fallbackUri = copy.uri;
+    } else if (mode === 2) {
+      copy.uri = '';
+      delete copy.fallbackUri;
+    } else {
+      /* a picture that does not exist, no fallback: the PS5 keeps its own
+         background with the light at the top (as an app without art
+         before its fallback picture arrives) */
+      copy.uri = '/user/data/ZhiThemes/Assets/particles/zt_no_background.dds';
+      delete copy.fallbackUri;
+    }
+    if (mode !== 3 && !copy.basemat) copy.basemat = 'EllipseNarrow';
+    if (!copy.type) copy.type = 'Fade';
+    if (cleanLogs++ < 4) log('clean background (try ' + mode + '): ' + JSON.stringify(copy).slice(0, 200));
+    return copy;
+  }
   function hookBackground(exp) {
     var sc;
     try { sc = exp.SceneControl; } catch (e) { return; }
@@ -9827,6 +9920,13 @@
     var original = sc.setBackground;
     var replaced = function (img) {
       var asked = img && typeof img === 'object' ? String(img.uri || '') : String(img);
+      if (THEME.bgClean) {
+        /* the focused game still comes from the uri asked (trophies, names) */
+        if (APP === 'home') focusedFrom(img);
+        if (img && typeof img === 'object') T.lastBgImg = img;
+        if (!T.done['clean background']) done('clean background');
+        return original.call(this, cleanBg(img));
+      }
       /* in a folder, a request with the hub's default picture (a game
          with no pic0: Bloodborne alone in a folder) keeps the background the
          theme showed last (the strip game's own one, or the folder's) */
@@ -9901,7 +10001,9 @@
     T.sceneControl = sc;
     done('screen background');
     /* the Home shows it right away, without waiting for the next focused game */
-    if (APP === 'home' && wallpaperUri()) {
+    if (APP === 'home' && THEME.bgClean) {
+      try { original.call(sc, cleanBg(T.lastBgImg)); } catch (e) { log('background: ' + e); }
+    } else if (APP === 'home' && wallpaperUri()) {
       try { original.call(sc, { uri: wallpaperUri() }); } catch (e) { log('background: ' + e); }
     }
   }

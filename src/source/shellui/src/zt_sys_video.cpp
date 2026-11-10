@@ -596,7 +596,9 @@ void zt_sys_video_install(MonoImage *pui) { s_pui = pui; }
 
 void zt_sys_video_apply(const std::string &script) {
   std::string file;
-  if (zt_theme_number(script, "sysOn", 0) != 0) {
+  /* bgClean: only the stock system background, no video or picture here */
+  const bool clean = zt_theme_number(script, "bgClean", 0) != 0;
+  if (!clean && zt_theme_number(script, "sysOn", 0) != 0) {
     const bool wall = zt_theme_number(script, "sysBgWallpaper", 0) != 0 &&
                       zt_theme_number(script, "wallpaperOn", 0) != 0;
     file = wall ? zt_theme_text(script, "wallpaper")
@@ -614,7 +616,7 @@ void zt_sys_video_apply(const std::string &script) {
                             : zt_theme_number(script, "sysBgVideoSound", 0) != 0;
   /* the wallpaper picture, when shared the same way */
   std::string picture;
-  if (file.empty() && zt_theme_number(script, "sysOn", 0) != 0 &&
+  if (file.empty() && !clean && zt_theme_number(script, "sysOn", 0) != 0 &&
       zt_theme_number(script, "sysBgWallpaper", 0) != 0 && zt_theme_number(script, "wallpaperOn", 0) != 0) {
     const std::string name = zt_theme_text(script, "wallpaper");
     std::string l = name;

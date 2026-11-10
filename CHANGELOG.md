@@ -14,8 +14,9 @@ Alpha: made on firmware **9.60**; also seen working on **13.60** by a tester. Ot
 - **Game names:** the PS5 game title, the tile title, or a *fake title* placed anywhere on the screen; game logos instead of names.
 - **Folders:** game folders on the Home, shown as a mosaic, stacked covers or icons, with their own background; colour and opacity per folder or one default for all.
 - **Extra tabs** next to Games / Media: *Recently played*, *Favourites* (optionally left of Games), *Never played*; add or remove favourites from the Options menu (one list for the whole console, whatever theme is in use). An empty tab shows an empty-box picture and says how to fill it; coming back from a game always lands on Games.
-- **Top bar:** tabs aligned left, centre or right inside a box (centre grows to both sides), L1 / R1 icons next to them, controller buttons in any colour; the top bar background always sits over the free background boxes, and the boxes appear together with the bar.
+- **Top bar:** tabs aligned left, centre or right inside a box (centre grows to both sides), L1 / R1 icons next to them, controller buttons in any colour; the top bar background always sits over the free background boxes, and the boxes appear together with the bar. The tabs can show **icons instead of names** (a system icon or your own picture per tab), in the tab colour.
 - **Game / App Library tile:** its games can stay hidden under the row until you open it.
+- **Clean background:** one switch shows only the PS5's own dark background with its light at the top everywhere (Home, game pages, folders, games without art, Settings), over any wallpaper, game art or custom background.
 - **Wallpaper:** a picture or an `.mp4` video, with overlay, vignette, dark edges and 23 particle styles (snow, sakura, rain, starfield, digital rain…).
 - **Extras:** own clock and date, play info ("Last played 3 days ago"), fake trophies, animated avatar (GIF), animations (tab change, folders, names, button bounce), debug panel (fps, memory, temperatures).
 - **Fonts:** your own system font without a restart; colours and sizes of the texts.

@@ -666,7 +666,8 @@ void zt_storage_setup() {
   /* the user's icons: what the icon fields name */
   std::set<std::string> icons;
   for (const char *k : {"searchIcon", "settingsIcon", "deco1Icon", "deco2Icon", "deco3Icon", "deco4Icon",
-                        "tabsGroupLeft", "tabsGroupRight", "footerIcon1", "footerIcon2", "footerIcon3"}) {
+                        "tabsGroupLeft", "tabsGroupRight", "footerIcon1", "footerIcon2", "footerIcon3",
+                        "tabsGameIcon", "tabsMediaIcon", "tabsRecentIcon", "tabsFavIcon", "tabsNeverIcon"}) {
     const std::string v = string_field(theme, k);
     if (!v.empty())
       icons.insert(v.substr(v.rfind('/') == std::string::npos ? 0 : v.rfind('/') + 1));
