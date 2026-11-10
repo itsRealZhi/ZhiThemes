@@ -16,8 +16,9 @@ Alpha: made on firmware **9.60**; also seen working on **13.60** by a tester. Ot
 - **Folders:** game folders on the Home, shown as a mosaic, stacked covers or icons, with their own background; colour and opacity per folder or one default for all.
 - **Extra tabs** next to Games / Media: *Recently played*, *Favourites* (optionally left of Games), *Never played*; add or remove favourites from the Options menu (one list for the whole console, whatever theme is in use). An empty tab shows an empty-box picture and says how to fill it; coming back from a game always lands on Games.
 - **Top bar:** tabs aligned left, centre or right inside a box (centre grows to both sides), L1 / R1 icons next to them, controller buttons in any colour; the top bar background always sits over the free background boxes, and the boxes appear together with the bar. The tabs can show **icons instead of names** (a system icon or your own picture per tab), in the tab colour.
-- **Extra top bar buttons** next to Search: **Power** (X opens Enter Rest Mode / Restart / Turn Off), **Trophies** (opens the Trophies app) and the **controller with its battery** (icon + %, only the icon, only the %, or the controller icon itself filling up; a green bolt while charging). Each one with its own symbol (system icon or your picture), size and opacity.
-- **Game / App Library tile:** its games can stay hidden under the row until you open it.
+- **Extra top bar buttons** next to Search: **Power** (X opens Enter Rest Mode / Restart / Turn Off), **Trophies** (opens the Trophies app) and the **controller with its battery** (icon + %, only the icon, only the %, or the controller icon itself filling up; a green bolt while charging). Each one with its own symbol (system icon or your picture), size and opacity. The power menu always fits on the screen, the controller keeps its width while the battery is read (the buttons next to it no longer jump), and buttons placed low on the screen fade away when a game page or the Game / App Library opens.
+- **Side bar themes:** the top icons (profile, settings, Power, Trophies) can sit anywhere, e.g. in a column on the left, and the controller moves between them in screen order with the normal move sound; left on the first tile of the row goes to the nearest icon, right goes back to the row. Theme layers wait for the real Home after a reload (no clock or icons alone on the loading screen).
+- **Game / App Library tile:** its games can stay hidden under the row until you open it, also after coming back from it.
 - **Clean background:** one switch shows only the PS5's own dark background with its light at the top everywhere (Home, game pages, folders, games without art, Settings), over any wallpaper, game art or custom background.
 - **Wallpaper:** a picture or an `.mp4` video, with overlay, vignette, dark edges and 23 particle styles (snow, sakura, rain, starfield, digital rain…).
 - **Extras:** own clock and date, play info ("Last played 3 days ago"), fake trophies, animated avatar (GIF), animations (tab change, folders, names, button bounce), debug panel (fps, memory, temperatures).
@@ -28,7 +29,8 @@ Alpha: made on firmware **9.60**; also seen working on **13.60** by a tester. Ot
 
 ### Editor
 - Web editor on `http://<PS5-IP>:4444` from a PC or phone: a live **Visual** view of the Home, tabs named after the part of the screen they change, one colour picker everywhere, an *Advanced* switch for the less used options.
-- **Top icons** are a row of icon buttons: each one opens a window with only that icon's options.
+- **Top icons** are a row of icon buttons: each one opens a window with only that icon's options; bigger or smaller Power / Trophies buttons show where the PS5 really draws them.
+- **Select several elements** with Ctrl + click and move them together (drag or arrow keys); big ones like the row give way to the smaller ones under the pointer, and Ctrl + click on a selected one takes it out.
 - Two saves in a row from the editor no longer reload the Home twice while it is still starting (that could crash the PS5 interface).
 - **Several themes on one PS5:** make, rename, switch and delete themes.
 - **Share themes:** *Download* saves one `.ztheme` file with the settings and the wallpaper / video, icons and fonts it uses; *Install* adds someone else's. Your folders and custom pictures are never included.

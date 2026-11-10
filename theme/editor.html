@@ -394,6 +394,7 @@
   .el { position: absolute; cursor: move; color: #fff; }
   .el:hover { outline: 3px dashed rgba(47, 208, 230, .7); outline-offset: 2px; }
   .el.sel { outline: 4px solid var(--accent); outline-offset: 2px; z-index: 5; }
+  .el.multi { outline: 4px dashed var(--accent); outline-offset: 2px; }
   .el.hiddenEl > .sim { visibility: hidden; }
   .el.hiddenEl { outline: none; }
   .el.hiddenEl:hover, .el.hiddenEl.sel { outline: 2px dashed var(--accent); }
@@ -4626,7 +4627,7 @@
      size, and with "Live" every change is applied on the console. */
   function store(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} }
   function stored(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
-  var V = { scene: 'home', sel: null, layout: {}, k: 0.5, timer: 0, mode: 'preview', measured: false,
+  var V = { scene: 'home', sel: null, multi: [], layout: {}, k: 0.5, timer: 0, mode: 'preview', measured: false,
             live: stored('theme-live') === '1', noT: {} };
   try { V.noT = JSON.parse(stored('theme-noT') || '{}') || {}; } catch (e) {}
   V.page = stored('theme-vpage') || 'home';  /* home, settings or trophy */
@@ -5114,9 +5115,19 @@
   var BAR_BTNS = ['padInfo', 'trophyBtn', 'powerBtn'];
   function barBtnW(id, c) {
     if (id !== 'padInfo') return 104;
+    /* as theme.js: padding 16 + icon + battery slot + % slot + padding 16 */
     var fs = num(c.padInfoFontSize) || 24, mode = c.padInfoBattery || 'both';
-    if (mode === 'inside') return 72;
-    return 72 + (mode !== 'text' ? 40 : 0) + (mode !== 'icon' ? Math.round(fs * 2.4) : 0);
+    var sz = num(c.padInfoSize) || num(c.iconSize) || 38;
+    if (mode === 'inside') return 32 + sz;
+    return 32 + sz + (mode !== 'text' ? 8 + Math.round(sz * 0.8) : 0) + (mode !== 'icon' ? 6 + Math.round(fs * 2.7) : 0);
+  }
+  /* Power / Trophies with …Scale s: on the console the button shows
+     (s−1)·width to the right and (s−1)·height/2 below its layout box, like
+     the stock icons (the controller has padInfoSize instead) */
+  function barScaleShift(e, c, b) {
+    if (e.id === 'padInfo') return;
+    var sc = num(c[e.id + 'Scale']) || 1;
+    b[0] += (sc - 1) * b[2]; b[1] += (sc - 1) * b[3] / 2;
   }
   function box(e, v) {
     var c = v.cur, m = V.layout[e.app + ':' + e.id], b, rec, measured = m && m.via === 'window';
@@ -5146,7 +5157,9 @@
         bx -= barBtnW(be.id, c);
         if (be === e) break;
       }
-      return { b: [bx + num(c[e.mx]) - num(c.searchX), sb[1] + num(c[e.my]) - num(c.searchY), barBtnW(e.id, c), 56], measured: false };
+      var gb = [bx + num(c[e.mx]) - num(c.searchX), sb[1] + num(c[e.my]) - num(c.searchY), barBtnW(e.id, c), 56];
+      barScaleShift(e, c, gb);
+      return { b: gb, measured: false };
     }
     if (e.detached)
       return { b: [num(c[e.detached[0]]), num(c[e.detached[1]]), 104, 56], measured: false };
@@ -5256,6 +5269,8 @@
       var sc = num(c[e.icon + 'Scale']) || 1;
       b[0] += (sc - 1) * b[2]; b[1] += (sc - 1) * b[3] / 2;
     }
+    /* the extra bar buttons (Power, Trophies) scale the same way */
+    if (e.barBtn && measured) barScaleShift(e, c, b);
     if (b[2] < 8) b[2] = 8;
     if (b[3] < 8) b[3] = 8;
     return { b: b, measured: measured };
@@ -5382,7 +5397,7 @@
     } else if (e.barBtn) {
       /* rough drawings of the rco icons (power, trophies, ps5_wireless_controller,
          battery_*); an uploaded .png shows itself */
-      var bsz = num(c.iconSize) || 38, bcol = e.id === 'padInfo' && c.padInfoColor ? c.padInfoColor : (c.iconsColor || '#fff');
+      var bsz = (num(c.iconSize) || 38) * (e.id === 'padInfo' ? 1 : num(c[e.id + 'Scale']) || 1), bcol = e.id === 'padInfo' && c.padInfoColor ? c.padInfoColor : (c.iconsColor || '#fff');
       var bv = String(c[e.id === 'padInfo' ? 'padInfoIcon' : e.id + 'Icon'] || '').trim();
       var bsvg = function (p, w) {
         return '<svg style="flex:none" width="' + (w || bsz) + '" height="' + bsz + '" viewBox="0 0 ' + (w ? Math.round(48 * w / bsz) : 48) + ' 48" fill="none" stroke="' + html(bcol) +
@@ -5651,11 +5666,15 @@
       V.drawn.push(e.id);
       var r = all[e.id], b = r.b, d = document.createElement('div');
       total++; if (r.measured) measured++;
-      d.className = 'el' + (b[1] < 50 ? ' low' : '') + (e.group ? ' grp' : '') + (V.sel === e.id ? ' sel' : '') + (hidden(e, c) ? ' hiddenEl' : '');
+      d.className = 'el' + (b[1] < 50 ? ' low' : '') + (e.group ? ' grp' : '') + (V.sel === e.id ? ' sel' : '') +
+                    (V.multi.indexOf(e.id) >= 0 ? ' multi' : '') + (hidden(e, c) ? ' hiddenEl' : '');
       d.style.cssText = 'left:' + b[0] + 'px;top:' + b[1] + 'px;width:' + b[2] + 'px;height:' + b[3] + 'px;z-index:' + (e.behind ? BEHIND_Z[e.id] || 0 : e.group ? 10 : 11);
       d.innerHTML = content(e, c, b, all) + '<div class="tag">' + html(e.name) + (r.measured ? '' : ' ≈') +
                     (hidden(e, c) ? ' (hidden)' : '') + '</div>' + (e.grow || e.growW ? '<div class="grip"></div>' : '');
-      d.onpointerdown = function (ev) { startDrag(ev, e, ev.target.className === 'grip'); };
+      d.onpointerdown = function (ev) {
+        if (ev.ctrlKey || ev.metaKey) { multiClick(ev, e); return; }
+        startDrag(ev, e, ev.target.className === 'grip');
+      };
       screen.appendChild(d);
     });
     /* selected element: distance in px from each edge to the screen edge */
@@ -5840,7 +5859,38 @@
     back.onclick = function () { select(null); };
     p.appendChild(back);
   }
-  function select(id) { V.sel = id; draw(); panel(); }
+  function select(id) { V.sel = id; V.multi = []; draw(); panel(); }
+  /* Ctrl + click: several elements selected, moved together (drag or
+     arrows). The one picked is the smallest box under the pointer, so a big
+     one (the row, more than 1/8 of the screen) gives way to a smaller one
+     under the pointer and is only picked when nothing else is there; Ctrl + click on
+     a selected one takes it out again. */
+  function selectedIds() {
+    return (V.sel ? [V.sel] : []).concat(V.multi.filter(function (id) { return id !== V.sel; }));
+  }
+  var BIG_AREA = 1920 * 1080 / 8;
+  function multiClick(ev, hit) {
+    ev.preventDefault(); ev.stopPropagation();
+    var screen = document.getElementById('vscreen'), r = screen.getBoundingClientRect();
+    var x = (ev.clientX - r.left) / V.k, y = (ev.clientY - r.top) / V.k, best = null, area = 1e12;
+    var hb = hit && V.boxes[hit.id] && V.boxes[hit.id].b;
+    if (hb && (hit.mx || hit.my) && hb[2] * hb[3] <= BIG_AREA) { best = hit.id; area = 0; }
+    (V.drawn || []).forEach(function (id) {
+      var bx = V.boxes[id] && V.boxes[id].b;
+      if (!bx || x < bx[0] || y < bx[1] || x > bx[0] + bx[2] || y > bx[1] + bx[3]) return;
+      var o = BY[id];
+      if (!o || (!o.mx && !o.my)) return;
+      var a = bx[2] * bx[3];
+      if (a < area) { area = a; best = id; }
+    });
+    if (!best) return;
+    var sel = selectedIds(), at = sel.indexOf(best);
+    if (at >= 0) sel.splice(at, 1); else sel.push(best);
+    V.sel = sel[0] || null;
+    V.multi = sel.slice(1);
+    draw(); panel();
+    if (sel.length > 1) status(sel.length + ' selected: drag one or use the arrows to move them together (Ctrl + click takes one out)');
+  }
 
   /* after any change: redraw and, when live, apply */
   function changed() {
@@ -5853,6 +5903,7 @@
 
   function startDrag(ev, e, grow) {
     ev.preventDefault(); ev.stopPropagation();
+    if (!grow && V.multi.length && selectedIds().indexOf(e.id) >= 0) { groupDrag(ev); return; }
     if (V.sel !== e.id) select(e.id);
     var v = values().cur, sx = ev.clientX, sy = ev.clientY, moved = false;
     var start = { mx: num(v[e.mx]), my: num(v[e.my]), grow: num(v[e.grow]), w: num(v[e.growW]), h: num(v[e.growH]) };
@@ -5914,7 +5965,46 @@
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   }
+  /* the position fields of the selected elements (each field once) */
+  function groupFields() {
+    var v = values().cur, seen = {}, out = [], sel = selectedIds();
+    sel.forEach(function (id) {
+      var o = BY[id];
+      /* a part of another selected element (the focused tile in the row)
+         already moves with it */
+      if (!o || (o.parent && sel.indexOf(o.parent) >= 0)) return;
+      [['x', o.mx], ['y', o.my]].forEach(function (f) {
+        if (f[1] && !seen[f[1]]) { seen[f[1]] = true; out.push({ axis: f[0], key: f[1], start: num(v[f[1]]) }); }
+      });
+    });
+    return out;
+  }
+  function groupMove(fields, dx, dy) {
+    fields.forEach(function (f) { setField(f.key, String(Math.round(f.start + (f.axis === 'x' ? dx : dy)))); });
+  }
+  function groupDrag(ev) {
+    var sx = ev.clientX, sy = ev.clientY, moved = false, fields = groupFields();
+    var move = function (m) {
+      var dx = (m.clientX - sx) / V.k, dy = (m.clientY - sy) / V.k;
+      if (Math.abs(dx) + Math.abs(dy) > 2) moved = true;
+      if (!moved) return;
+      groupMove(fields, dx, dy);
+      draw();
+    };
+    var up = function () {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      if (moved) { draw(); panel(); changed(); }
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
   function nudge(e, key, dx, dy) {
+    if (key !== 'h' && V.multi.length) {
+      groupMove(groupFields(), dx || 0, dy || 0);
+      panel(); changed();
+      return;
+    }
     var v = values().cur;
     if (key === 'h') {
       var k = e.hideKey || e.toggle;

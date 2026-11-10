@@ -1296,6 +1296,42 @@
     var last = list.length ? list[list.length - 1].id : me.current;
     return last === me.current ? props.children : null;
   }
+  /* The Home first draws a loading screen (no row, no tabs, no top bar)
+     and then the real one. The front layer (own clock, icons, footer, icons
+     moved out of the bar...) would show alone on the loading screen, before
+     the profile and the bar buttons: it waits until the real top bar or the
+     tabs draw (at most 6 s). */
+  var readyListeners = [];
+  function homeReadySet(why) {
+    if (T.homeReady) return;
+    T.homeReady = true;
+    done('home ready (' + why + ')');
+    var ls = readyListeners.slice();
+    setTimeout(function () { ls.forEach(function (f) { try { f(); } catch (e) {} }); }, 0);
+  }
+  function ReadyGate(props) {
+    var React = T.React, st = React.useState(!!T.homeReady), ok = st[0], set = st[1];
+    React.useEffect(function () {
+      if (ok) return undefined;
+      var f = function () { set(true); };
+      readyListeners.push(f);
+      if (T.homeReady) f();
+      var t = setTimeout(function () { homeReadySet('timeout'); }, 6000);
+      return function () {
+        clearTimeout(t);
+        var i = readyListeners.indexOf(f);
+        if (i >= 0) readyListeners.splice(i, 1);
+      };
+    }, [ok]);
+    return ok ? props.children : null;
+  }
+  function readyGate(children) {
+    var React = T.React;
+    if (APP !== 'home' || !React || typeof React.useState !== 'function' || typeof React.useEffect !== 'function' ||
+        !children || !children.length)
+      return children;
+    return [React.createElement(ReadyGate, { key: 'theme-ready-gate' }, children)];
+  }
   function single(slot, children) {
     if (!T.React || !children || !children.length) return children;
     return [T.React.createElement(Single, { key: 'single-' + slot, slot: slot }, children)];
@@ -2908,6 +2944,7 @@
       T.iconProps[pre] = props;
       /* the copy is told after the render (not during it) */
       var tell = function () {
+        homeReadySet('top bar');
         if (!T.done['bar props ' + pre]) done('bar props ' + pre + ': ' + Object.keys(props || {}).join(','));
         (propsListeners[pre] || []).forEach(function (f) { f(props); });
       };
@@ -3057,7 +3094,7 @@
     try {
       var sound = T.rn && T.rn.SystemSoundPS;
       if (sound && typeof sound.playByID === 'function')
-        sound.playByID('psfx_focus_move', undefined, { pan: step > 0 ? 100 : -100 });
+        sound.playByID('psfx_focus_move', undefined, { pan: step > 0 ? 100 : step < 0 ? -100 : 0 });
     } catch (x) {}
   }
   function tabStep(name, step, e) {
@@ -3177,8 +3214,22 @@
   function rowMid() { return rowTop() + (THEME.focusSize || 168) / 2; }
   /* out of the top bar (lower than it): the theme leads the controller there */
   function offBar(pre) { return iconY(pre) > 130; }
-  function belowRow(pre) { return iconScreen(pre)[1] >= rowTop() + (THEME.tileSize || 106) / 2; }
-  function aboveRow(pre) { var y = iconScreen(pre)[1]; return y > 130 && y < rowTop(); }
+  function belowRow(pre) { return iconPos(pre)[1] >= rowTop() + (THEME.tileSize || 106) / 2; }
+  function aboveRow(pre) { var y = iconPos(pre)[1]; return y > 130 && y < rowTop(); }
+  /* Power / Trophies moved out of the bar (lower than it, e.g. a side bar):
+     the PS5 only moves between the bar and the row, so up / down went past
+     the profile and settings (in their own layers). Out of the bar they
+     share the icons' path; place = measured on the screen. */
+  function barOut(pre) {
+    var b = T.barBox && T.barBox[pre];
+    return !!(THEME.iconsNav && THEME[pre + 'On'] && b && b[1] > 130 && T.iconRefs && T.iconRefs[pre]);
+  }
+  function iconPos(pre) {
+    var b = T.barBox && T.barBox[pre];
+    return ICON_X[pre] == null && b ? [b[0], b[1]] : iconScreen(pre);
+  }
+  /* the row is that way (not only lower / higher: next to it) */
+  function rowBeside(p) { return p[0] + 104 >= rowStartX() - 60; }
 
   /* key handlers get {keyEventType: 'Down' | 'Repeat' | ...} and return false
      when they took the key; the event goes from the focused element up its
@@ -3214,14 +3265,18 @@
     return true;
   }
   /* nearest icon from point p in a direction (along it + 2x across it) */
-  function nearest(p, dir, skip, only) {
-    var best = null, score = 1e9;
-    shownIcons().forEach(function (pre) {
+  function nearest(p, dir, skip, only, withBar) {
+    var best = null, score = 1e9, list = shownIcons();
+    if (withBar) ['powerBtn', 'trophyBtn'].forEach(function (b) { if (barOut(b)) list.push(b); });
+    list.forEach(function (pre) {
       if (pre === skip || (only && !only(pre))) return;
-      var q = iconScreen(pre), dx = q[0] - p[0], dy = q[1] - p[1];
+      var q = iconPos(pre), dx = q[0] - p[0], dy = q[1] - p[1];
       var along = dir === 'down' ? dy : dir === 'up' ? -dy : dir === 'right' ? dx : -dx;
       var across = dir === 'down' || dir === 'up' ? dx : dy;
       if (along < 20) return;
+      /* left / right: roughly that way (an icon of the same column, a little
+         to the side but far lower, is not "on the right") */
+      if ((dir === 'left' || dir === 'right') && Math.abs(across) > along * 2) return;
       var sc = along + 2 * Math.abs(across);
       if (sc < score) { score = sc; best = pre; }
     });
@@ -3234,31 +3289,47 @@
   function iconKey(pre, dir) {
     var id = pre + dir;
     if (keyCache[id]) return keyCache[id];
-    return (keyCache[id] = function (e) {
+    var kf = keyCache[id] = function (e) {
       keyLog(pre + ' ' + dir, e);
       if (taken(e)) return false;
-      var p = iconScreen(pre), n = nearest(p, dir, pre, leftOfTabs(pre) && dir === 'right' ? leftOfTabs : null);
+      /* reached from the row with left: right goes back to it */
+      if (dir === 'right' && T.fromRowIcon === pre) {
+        take(e);
+        if (pressed(e)) { tabMoveSound(1); T.fromRowIcon = null; focusRow(); }
+        return false;
+      }
+      var lot = ICON_X[pre] != null && leftOfTabs(pre);
+      var p = iconPos(pre), n = nearest(p, dir, pre, lot && dir === 'right' ? leftOfTabs : null, true);
       if (dir === 'up' || dir === 'down') {
         var along = dir === 'down' ? rowMid() - p[1] : p[1] - rowMid();
-        if (along > 20 && (!n.pre || along < n.score)) {
+        if (along > 20 && rowBeside(p) && (!n.pre || along < n.score)) {
           take(e);
-          if (pressed(e)) focusRow();
+          if (pressed(e)) { tabMoveSound(0); focusRow(); }
           return false;
         }
       }
       if (n.pre && T.iconRefs && T.iconRefs[n.pre]) {
         take(e);
-        if (pressed(e)) focusIcon(n.pre);
+        /* our own move: the normal move sound (the PS5's is the "cannot
+           move" one, see cursorEndSFXEnabledDirection on these icons) */
+        if (pressed(e)) { tabMoveSound(dir === 'left' ? -1 : dir === 'right' ? 1 : 0); focusIcon(n.pre); }
         return false;
       }
       /* left of the tabs: right goes to the tabs (rightCandidate of its layer) */
-      if (dir === 'right' && leftOfTabs(pre)) return true;
+      if (dir === 'right' && lot) return true;
+      /* nothing on the right of an icon left of the row: the row */
+      if (dir === 'right' && p[0] + 52 < rowStartX() && p[1] > 130) {
+        take(e);
+        if (pressed(e)) { tabMoveSound(1); T.fromRowIcon = null; focusRow(); }
+        return false;
+      }
       if (dir === 'left' || dir === 'right') { take(e); return false; }
       if (dir === 'down') {
         /* nothing lower: on to the hub (Play, trophies...), what down on the
-           row did before; it opens the hub of the focused tile */
+           row did before; it opens the hub of the focused tile (not from
+           an icon beside the row, e.g. a side bar: it stays) */
         take(e);
-        if (pressed(e) && T.hubDown && belowRow(pre) && !hubEmpty()) {
+        if (pressed(e) && T.hubDown && belowRow(pre) && rowBeside(p) && !hubEmpty()) {
           /* the row's down (useHubViewer) only animates to the hub and returns
              true: the PS5 then moves the focus with the real key. Here the
              focus goes in by hand, like the Home's own path does
@@ -3273,7 +3344,20 @@
         return false;
       }
       return true;
-    });
+    };
+    kf.__ztIcon = true;
+    return kf;
+  }
+  /* the icons we move between ourselves (ref.focus): the PS5 saw the cursor
+     not moving and played its "cannot move" sound; like the tabs, that sound
+     is off there (we play the move sound) */
+  var ICON_NO_END_SFX = [];
+  function iconSfx(props) {
+    var ours = [props.onUpKeyDown, props.onDownKeyDown, props.onLeftKeyDown, props.onRightKeyDown]
+      .some(function (k) { return k && k.__ztIcon; });
+    if (!ours) return;
+    props.cursorEndSFXEnabledDirection = ICON_NO_END_SFX;
+    if (!T.done['icon sounds']) done('icon sounds (own move sound)');
   }
   /* every section of the game hub hidden: nothing there takes the focus, and
      going down only showed an empty page; the PS5 itself blocked the
@@ -3315,6 +3399,140 @@
     };
     if (orig) cache.set(orig, f); else rowBare[dir] = f;
     return f;
+  }
+  /* ---- left on the first tile of the row: to the icons left of the row ----
+     (themes with a side bar). Candidates: the icons out of the bar (place from
+     the fields) and the Power / Trophies buttons (place measured on the
+     screen when they lay out). The nearest to the row's middle wins; right on
+     that icon goes back to the row. */
+  T.barBox = T.barBox || {};
+  var barHosts = {}, barHostRefs = {};
+  function barHostRef(pre, extra) {
+    if (barHostRefs[pre]) return barHostRefs[pre];
+    return (barHostRefs[pre] = function (inst) {
+      barHosts[pre] = inst || null;
+      if (extra) extra.current = inst;
+    });
+  }
+  function barBoxMeasure(pre) {
+    var h = barHosts[pre];
+    if (!h || typeof h.measureInWindow !== 'function') return;
+    try {
+      h.measureInWindow(function (x, y, w, hh) {
+        if (typeof x !== 'number' || typeof y !== 'number') return;
+        T.barBox[pre] = [x, y, w || 104, hh || 56];
+        if (!T.done['bar box ' + pre]) done('bar box ' + pre + ' ' + Math.round(x) + ',' + Math.round(y));
+      });
+    } catch (e) { if (!T.done['bar box ' + pre]) done('bar box ' + pre + ': ' + e); }
+  }
+  function rowStartX() { return 172 + (THEME.rowX || 0) + (THEME.focusX || 0); }
+  /* centre of each icon that can take the focus */
+  function leftCandidates() {
+    var out = [];
+    shownIcons().forEach(function (pre) {
+      if (!outOfBar(pre) && !detached()[pre]) return;
+      var q = iconScreen(pre);
+      out.push({ pre: pre, x: q[0] + 52, y: q[1] + 28 });
+    });
+    ['powerBtn', 'trophyBtn'].forEach(function (pre) {
+      var b = T.barBox[pre];
+      barBoxMeasure(pre); /* fresh for the next time (the bar may have moved) */
+      if (THEME[pre + 'On'] && b) out.push({ pre: pre, x: b[0] + b[2] / 2, y: b[1] + b[3] / 2 });
+    });
+    return out.filter(function (c) { return c.x < rowStartX() && T.iconRefs && T.iconRefs[c.pre]; });
+  }
+  function atFirstTile() {
+    var sel = T.selectedId;
+    if (!sel) return false;
+    var lists = [T.rowData, T.rowDataMedia];
+    for (var i = 0; i < lists.length; i++) {
+      var l = lists[i];
+      if (!Array.isArray(l) || !l.length) continue;
+      var first = null;
+      for (var j = 0; j < l.length && !first; j++) if (l[j] && typeof l[j].id === 'string') first = l[j].id;
+      if (first === sel) return true;
+    }
+    return false;
+  }
+  var rowLeftCache = new WeakMap(), rowLeftBare = null;
+  function rowLeft(orig) {
+    if (orig && rowLeftCache.has(orig)) return rowLeftCache.get(orig);
+    if (!orig && rowLeftBare) return rowLeftBare;
+    var f = function (e) {
+      keyLog('row left', e);
+      if (!T.done['row left key seen']) done('row left key seen');
+      if (rowLeftGo(e)) return false;
+      return orig ? orig.apply(this, arguments) : true;
+    };
+    if (orig) rowLeftCache.set(orig, f); else rowLeftBare = f;
+    return f;
+  }
+  /* true when it took the key (first tile, an icon on the left) */
+  function rowLeftGo(e) {
+    if (taken(e) || !THEME.iconsNav || T.folderOpen || !atFirstTile()) return false;
+    var best = null, score = 1e9, mid = rowMid(), sx = rowStartX();
+    leftCandidates().forEach(function (c) {
+      var sc = (sx - c.x) + 2 * Math.abs(c.y - mid);
+      if (sc < score) { score = sc; best = c.pre; }
+    });
+    if (!best) {
+      if (!T.done['row left: no icon on the left']) done('row left: no icon on the left');
+      return false;
+    }
+    take(e);
+    if (pressed(e)) {
+      tabMoveSound(-1);
+      if (focusIcon(best)) T.fromRowIcon = best;
+      if (!T.done['row left to ' + best]) done('row left to ' + best);
+    }
+    return true;
+  }
+  /* The row's own onLeftKeyDown never gets the key (the strand moves in
+     native code, like up): the key goes to the tile's focusable View
+     ({name: <id>, focusable}), as in the open folder. Every tile gets it;
+     it only acts on the selected first one. */
+  var tileLeftFns = {};
+  function tileLeftKeys(props) {
+    if (!THEME.iconsNav || props.focusable !== true || typeof props.name !== 'string') return;
+    var id = props.name;
+    if (!/^[A-Z]{4}\d{5}$/.test(id) && id.indexOf(FOLDER) !== 0) return;
+    var cur = props.onLeftKeyDown;
+    /* the open folder's own keys already ask rowLeftGo */
+    if (cur && (cur.__ztLeft || (tileKeyFns[id] && cur === tileKeyFns[id].onLeftKeyDown))) return;
+    var orig = typeof cur === 'function' ? cur : null, c = tileLeftFns[id];
+    if (!c || c.orig !== orig) {
+      var f = function (e) {
+        keyLog('tile ' + id + ' left', e);
+        if (!T.done['tile left key seen']) done('tile left key seen');
+        if (T.selectedId === id && rowLeftGo(e)) return false;
+        return orig ? orig.apply(this, arguments) : true;
+      };
+      f.__ztLeft = true;
+      c = tileLeftFns[id] = { orig: orig, f: f };
+    }
+    props.onLeftKeyDown = c.f;
+  }
+  /* the keys of a Power / Trophies button: out of the bar, the icons' path
+     (to the profile, settings, the other button, back to the row); in the bar
+     (or reached from the row with left), right goes back to the row,
+     otherwise the PS5's own path */
+  var barKeyFns = {};
+  function barKey(pre, dir, orig) {
+    var k = pre + dir;
+    var f = barKeyFns[k];
+    if (f && f.orig === orig) return f;
+    f = function (e) {
+      if (!taken(e) && barOut(pre)) return iconKey(pre, dir).apply(this, arguments);
+      if (!taken(e) && dir === 'right' && T.fromRowIcon === pre) {
+        take(e);
+        if (pressed(e)) { tabMoveSound(1); T.fromRowIcon = null; focusRow(); }
+        return false;
+      }
+      return orig ? orig.apply(this, arguments) : true;
+    };
+    f.orig = orig;
+    f.__ztIcon = true;
+    return (barKeyFns[k] = f);
   }
   /* keeps the native ref of each bar button (for focus()) and forwards it */
   var refCache = new WeakMap();
@@ -3363,6 +3581,17 @@
       if (pre) {
         props.ref = keepRef(pre, props.ref);
         iconKeys(pre, props);
+        return;
+      }
+      /* the extra bar buttons (same Button): their ref, for left from the row */
+      var bpre = THEME.powerBtnOn && props.icon === (iconValue(THEME.powerBtnIcon) || 'power') ? 'powerBtn'
+               : THEME.trophyBtnOn && props.icon === (iconValue(THEME.trophyBtnIcon) || 'trophies') ? 'trophyBtn' : null;
+      if (bpre) {
+        props.ref = keepRef(bpre, props.ref);
+        ['up', 'down', 'left', 'right'].forEach(function (d) {
+          var n = 'on' + d.charAt(0).toUpperCase() + d.slice(1) + 'KeyDown';
+          props[n] = barKey(bpre, d, typeof props[n] === 'function' ? props[n] : null);
+        });
       }
       return;
     }
@@ -3401,6 +3630,8 @@
       if (above) props.onUpKeyDown = rowKey('up', typeof props.onUpKeyDown === 'function' ? props.onUpKeyDown : null);
       if ((below || above) && !T.done['row keys']) done('row keys');
     }
+    /* left on the first tile: to the icons left of the row */
+    if (THEME.iconsNav) props.onLeftKeyDown = rowLeft(typeof props.onLeftKeyDown === 'function' ? props.onLeftKeyDown : null);
     /* an empty Favourites tab: down stays on the (hidden) row */
     if (extraTabsOn()) props.onDownKeyDown = favEmptyDown(props.onDownKeyDown);
   }
@@ -3480,7 +3711,7 @@
     var React = T.React, rn = T.rn;
     /* every hook first (a hook after a return unmounts the Home) */
     var setTick = React.useState(0)[1];
-    var powerRef = React.useRef(null), menuRef = React.useRef(null);
+    var powerRef = React.useRef(null), menuRef = React.useRef(null), anchorRef = React.useRef(null);
     var tgt = React.useState(null), target = tgt[0], setTarget = tgt[1];
     /* the bar button (module 270) is known once Search or Settings has
        drawn: drawn again then */
@@ -3492,7 +3723,7 @@
       return function () { var i = ls.indexOf(f); if (i >= 0) ls.splice(i, 1); };
     }, []);
     React.useEffect(function () {
-      var h = nodeOf(powerRef.current);
+      var h = nodeOf(anchorRef.current || powerRef.current);
       if (h != null && h !== target) setTarget(h);
     });
     var Btn = T.sysBtn, out = [];
@@ -3502,22 +3733,32 @@
       if (op >= 0 && op < 1) st.opacity = op;
       var p = { key: key, collapsable: false, style: st };
       if (ref) p.ref = ref;
+      /* where it really is on the screen (left from the row) */
+      if (THEME.iconsNav && (pre === 'powerBtn' || pre === 'trophyBtn')) {
+        p.ref = barHostRef(pre, ref);
+        p.onLayout = function () { barBoxMeasure(pre); };
+      }
       if (THEME.measureScreen) withMeasure(pre, p);
+      /* far below the bar (a side bar): the bar goes up out of the screen when
+         the Home moves up to a hub / the Game Library, these stayed on it */
+      var fade = barLowFade(y);
+      if (fade) child = React.createElement(rn.Animated.View, { style: { opacity: fade } }, child);
       return React.createElement(rn.View, p, child);
     };
     var button = function (pre, icon, title, onPress) {
       var p = {};
       for (var k in props) p[k] = props[k];
       p.iconId = icon; p.iconIndex = 0; p.testID = 'zt-' + pre; p.title = title; p.onPress = onPress;
+      p.key = 'zt-btn-' + pre;
       return React.createElement(Btn, p);
     };
     if (THEME.powerBtnOn && Btn) {
       out.push(place('zt-bar-power', 'powerBtn', THEME.powerBtnX, THEME.powerBtnY, powerRef,
-        button('power', iconValue(THEME.powerBtnIcon) || 'power', 'Power', function () {
+        [button('power', iconValue(THEME.powerBtnIcon) || 'power', 'Power', function () {
           var m = menuRef.current;
           if (!T.done['power menu ref']) done('power menu ref (' + (m ? Object.keys(m).concat(Object.keys(Object.getPrototypeOf(m) || {})).join(',').slice(0, 200) : 'none') + ')');
           try { if (m && typeof m.open === 'function') m.open(); else log('power menu: no open()'); } catch (e) { log('power menu open: ' + e); }
-        })));
+        }), powerAnchor(anchorRef)]));
       var ps = T.rnps;
       if (ps && ps.OptionsMenuPS && ps.MenuListItemPS && ps.MenuListItemPS.Button) {
         var items = POWER_ITEMS.map(function (it) {
@@ -3545,6 +3786,28 @@
     return out.length ? out : null;
   }
 
+  /* The power menu opens at its target: a button low on the screen had the
+     menu going out of the bottom. The target is an empty box over the button,
+     moved up so the whole menu fits above the last line of the screen. */
+  var POWER_MENU_H = 330, SCREEN_BOTTOM = 1040;
+  function powerAnchor(ref) {
+    var React = T.React, rn = T.rn;
+    var sc = THEME.powerBtnScale > 0 ? THEME.powerBtnScale : 1;
+    var top = BAR_TOP + (THEME.iconsY || 0) + (THEME.powerBtnY || 0);
+    var bottom = top + 28 + 28 * sc; /* scaled from the centre of its 56 px */
+    var dy = Math.min(0, SCREEN_BOTTOM - POWER_MENU_H - bottom);
+    if (dy && !T.done['power menu anchor']) done('power menu anchor ' + Math.round(dy) + ' px');
+    return React.createElement(rn.View, { key: 'zt-power-anchor', ref: ref, collapsable: false, pointerEvents: 'none',
+      style: { position: 'absolute', left: 0, top: dy / sc, width: 104, height: 56 } });
+  }
+  /* the bar buttons' top on the screen (measured: y = 21 + iconsY + …Y) */
+  var BAR_TOP = 21;
+  function barLowFade(y) {
+    var A = T.rn && T.rn.Animated;
+    if (!A || !A.View || !T.homeLift || typeof T.homeLift.interpolate !== 'function') return null;
+    if (BAR_TOP + (THEME.iconsY || 0) + (y || 0) <= 130) return null;
+    return T.homeLift.interpolate({ inputRange: [-150, 0], outputRange: [0, 1], extrapolate: 'clamp' });
+  }
   /* the controller's battery: VshNMSystemShellUIPeripheralModule (the Home's
      native peripheral module) with the user's id; the answer is looked
      through for a battery number and a charging flag (field names not known
@@ -3705,12 +3968,19 @@
         style: { flexDirection: 'row', alignItems: 'center', height: 56, paddingLeft: 16, paddingRight: 16 } },
         padInside(React, rn, padIcon, size, bat));
     }
+    /* the battery icon and the % keep their place before the first reading
+       and at any level: the bar row is right aligned, so a wider controller
+       pushed Power / Trophies (left of it) to the left */
     var kids = [React.createElement(rn.View, { key: 'pad' }, decoIcon(padIcon, size, THEME.padInfoColor || null))];
-    if (bat && mode !== 'text')
-      kids.push(React.createElement(rn.View, { key: 'bat', style: { marginLeft: 8 } }, decoIcon(padBatteryIcon(bat), Math.round(size * 0.8), bcol)));
-    if (bat && bat.pct != null && mode !== 'icon') {
+    if (mode !== 'text') {
+      var bsz = Math.round(size * 0.8);
+      kids.push(React.createElement(rn.View, { key: 'bat', style: { marginLeft: 8, width: bsz, height: bsz } },
+        bat ? decoIcon(padBatteryIcon(bat), bsz, bcol) : null));
+    }
+    if (mode !== 'icon') {
       var px = fontSize(THEME.padInfoFontSize || 24) || 24;
-      kids.push(React.createElement(rn.Text, { key: 'pct', style: { marginLeft: 6, fontSize: px, color: bcol } }, bat.pct + '%'));
+      kids.push(React.createElement(rn.View, { key: 'pct', style: { marginLeft: 6, width: Math.round(px * 2.7) } },
+        bat && bat.pct != null ? React.createElement(rn.Text, { numberOfLines: 1, style: { fontSize: px, color: bcol } }, bat.pct + '%') : null));
     }
     if (!T.done['controller drawn']) done('controller drawn');
     return React.createElement(rn.View, { pointerEvents: 'none',
@@ -4820,6 +5090,7 @@
     var text = props.children;
     if (!text || Array.isArray(text) || !text.props || !Array.isArray(text.props.style) || text.props.style[1]) return;
     var sid = props.name.slice('space-switcher-'.length);
+    if (!T.homeReady) setTimeout(function () { homeReadySet('tabs'); }, 0);
     if (T.tabSel === sid) return;
     var old = T.tabSel;
     T.tabSel = sid;
@@ -5707,6 +5978,8 @@
         return function (e) {
           keyLog('folder tile ' + name, e);
           if (T.folderSel !== id || !folderIsOpen()) {
+            /* closed folder as the first tile: left to the icons on the left */
+            if (name === 'onLeftKeyDown' && T.selectedId === id && rowLeftGo(e)) return false;
             return typeof k.orig[name] === 'function' ? k.orig[name].apply(this, arguments) : true;
           }
           if (name === 'onUpKeyDown' || name === 'onDownKeyDown') {
@@ -9674,6 +9947,12 @@
           T.libKept = u;
           if ((T.libBackLogs = (T.libBackLogs || 0) + 1) <= 6) log('library: back from ' + u.slice(0, 60) + ', page left in place while its tile is selected');
         }
+        /* left in place but not seen (its games showed under the row):
+           opacity changes no layout, so the focus path stays the same */
+        if (THEME.libraryHideGames || favEmptyNow()) {
+          props.style = [props.style, { opacity: 0 }];
+          if (!T.done['library page see-through']) done('library page see-through while its tile is selected');
+        }
         return;
       }
       T.libOpened[u] = false;
@@ -9991,6 +10270,8 @@
       if (APP === 'home' && props && typeof props === 'object') {
         topIcons(props, type);
         seeRow(props);
+        tileLeftKeys(props);
+        iconSfx(props);
         favEmptyItem(props);
         hubLayer(props);
         if ('hubUrl' in props && 'focusLayerName' in props) {
@@ -10163,7 +10444,7 @@
         /* the debug panel, over everything */
         if (THEME.debugOverlay && T.React && APP === 'home' && typeof T.React.useState === 'function')
           front.push(T.React.createElement(DebugPanel, { key: 'theme-debug-panel' }));
-        props.children = front.length ? children.concat(single('front', homeLayer('theme-layer-front', front)))
+        props.children = front.length ? children.concat(single('front', homeLayer('theme-layer-front', readyGate(front))))
                                       : children;
       }
       return fn.apply(this, arguments);
