@@ -3123,7 +3123,7 @@
       if ((below || above) && !T.done['row keys']) done('row keys');
     }
     /* an empty Favourites tab: down stays on the (hidden) row */
-    if (THEME.tabFavOn) props.onDownKeyDown = favEmptyDown(props.onDownKeyDown);
+    if (extraTabsOn()) props.onDownKeyDown = favEmptyDown(props.onDownKeyDown);
   }
 
   function moveIcons(o) {
@@ -3799,8 +3799,12 @@
      opacity 0 (T.favEmptyOp), the library page out of the screen, X and down
      on it do nothing (opening the library from our tab went wrong), no fake
      title, and FavEmptyMsg says what to do instead. */
+  /* the same for Recently played / Never played with nothing in them */
   var favEmptyListeners = [];
-  function favEmptyNow() { return APP === 'home' && !!THEME.tabFavOn && T.tabSel === 'zt_fav' && !!T.favEmpty; }
+  function extraTabsOn() { return !!(THEME.tabRecentOn || THEME.tabFavOn || THEME.tabNeverOn); }
+  function favEmptyNow() {
+    return APP === 'home' && extraTabsOn() && !!T.tabEmpty && !!T.tabEmpty[T.tabSel] && !!extraTab(T.tabSel);
+  }
   function favEmptyUpdate() {
     var now = favEmptyNow();
     if (T.favEmptyShown === now) return;
@@ -3819,7 +3823,7 @@
   var favPressWraps = new WeakMap();
   function favEmptyItem(props) {
     var e = props.experience;
-    if (!THEME.tabFavOn || !e || typeof e !== 'object' || e.id !== 'NPXS40071' ||
+    if (!extraTabsOn() || !e || typeof e !== 'object' || e.id !== 'NPXS40071' ||
         typeof props.onItemPress !== 'function' || props.onItemPress.__ztFav) return;
     var p = props.onItemPress, w = favPressWraps.get(p);
     if (!w) {
@@ -3866,14 +3870,21 @@
     var top = 126 + (THEME.rowOffsetY || 0) + (THEME.focusY || 0);
     var px = fontSize(32) || 32, px2 = fontSize(24) || 24;
     var color = THEME.tileNameColor || '#ffffff';
-    if (!T.done['favourites empty message']) done('favourites empty message');
+    var tab = T.tabSel;
+    var line2 = tab === 'zt_recent' ? THEME.tabRecentEmpty2 || 'Play a game and it shows up here.'
+              : tab === 'zt_never' ? THEME.tabNeverEmpty2 || 'You have played all your games!'
+              : THEME.tabFavEmpty2 || 'Add a game to your favourites!';
+    /* an empty open box (Assets/particles/ui_empty_box.png, white, tinted) */
+    var box = Math.round(Math.min(h * 0.55, 112));
+    if (!T.done['empty tab message']) done('empty tab message (' + tab + ')');
     return React.createElement(rn.View, { pointerEvents: 'none', style: {
         position: 'absolute', left: 0, right: 0, top: top, height: h,
         alignItems: 'center', justifyContent: 'center' } },
+      React.createElement(rn.Image, { key: 'i', source: { uri: 'file://' + ZT_ASSETS + 'particles/ui_empty_box.png' },
+                                      style: { width: box, height: box, tintColor: color, opacity: 0.85, marginBottom: 10 } }),
       React.createElement(rn.Text, { key: 'a', style: { fontSize: px, color: color } },
                           THEME.tabFavEmpty1 || 'Nothing to show here!'),
-      React.createElement(rn.Text, { key: 'b', style: { fontSize: px2, color: color, opacity: 0.75, marginTop: 8 } },
-                          THEME.tabFavEmpty2 || 'Add a game to your favourites!'));
+      React.createElement(rn.Text, { key: 'b', style: { fontSize: px2, color: color, opacity: 0.75, marginTop: 8 } }, line2));
   }
   /* the rows of our tabs, by their ids: rowSpace leaves them alone (no
      folder tiles, no game list for the editor) */
@@ -3903,7 +3914,8 @@
       out.sort(function (a, b) { return playedAt(b) - playedAt(a); });
       out = out.slice(0, Math.max(1, Math.floor(Number(THEME.tabRecentMax)) || 12));
     }
-    if (tab === 'zt_fav') { T.favEmpty = !out.length; favEmptyUpdate(); }
+    (T.tabEmpty = T.tabEmpty || {})[tab] = !out.length;
+    favEmptyUpdate();
     if (lib && !out.length) out.push(lib);
     T.tabRows[out.map(function (r) { return r.titleId; }).join(',')] = tab;
     var line = tab + ': ' + out.length + ' of ' + items.length + ' titles';
@@ -3981,6 +3993,38 @@
           labels[t.id] = t.name;
       } catch (e) { log('tabs: ' + t.id + ' not added: ' + e); }
     });
+  }
+  /* Back from a game (and any focus by titleId): the Home looks the title
+     up in every row with cachedExperiences(...).findByTitleId, a Map of
+     titleId -> tile where the last row wins, so it went to our tabs
+     (Recently played) instead of Games. findBy('titleId') here gives the
+     first tile outside our tabs (Games / Media); only a title that is in
+     our tabs alone keeps the Home's answer. */
+  function hookTitleSpace(exp) {
+    if (APP !== 'home' || !exp || typeof exp.Cached !== 'function' || !exp.Cached.prototype) return;
+    var owner = exp.Cached.prototype;
+    while (owner && !Object.prototype.hasOwnProperty.call(owner, 'findBy')) owner = Object.getPrototypeOf(owner);
+    if (!owner || typeof owner.findBy !== 'function' || owner.findBy.__zt) return;
+    var orig = owner.findBy;
+    var w = function (key, value) {
+      var r = orig.apply(this, arguments);
+      try {
+        if (key !== 'titleId' || !r || !isExtraSpace(r.spaceId) || !Array.isArray(this._array)) return r;
+        var a = this._array;
+        for (var i = 0; i < a.length; i++) {
+          var e = a[i];
+          if (e && e.titleId === value && !isExtraSpace(e.spaceId)) {
+            if ((T.titleSpaceLogs = (T.titleSpaceLogs || 0) + 1) <= 4)
+              log('tabs: ' + value + ' found in ' + r.spaceId + ', ' + e.spaceId + ' used');
+            return e;
+          }
+        }
+      } catch (err) { log('tabs: findBy ' + err); }
+      return r;
+    };
+    w.__zt = true;
+    try { owner.findBy = w; } catch (e) { log('tabs: findBy not replaceable: ' + e); return; }
+    if (owner.findBy === w) done('tabs: title lookup prefers Games');
   }
   /* L1 / R1: Games <-> Media stays the Home's; every other move goes
      through ours, with the Home's own sound and move (AniketosHEN's
@@ -4262,9 +4306,22 @@
       wormLayout(props, sid);
       if (on && T.wormSel !== sid) {
         T.wormSel = sid;
+        wormGo(sid);
         setTimeout(wormChanged, 0);
       }
-      if (T.tabSel && T.wormSel !== T.tabSel) { T.wormSel = T.tabSel; setTimeout(wormChanged, 0); }
+      if (T.tabSel && T.wormSel !== T.tabSel) { T.wormSel = T.tabSel; wormGo(T.tabSel); setTimeout(wormChanged, 0); }
+    }
+    /* the worm needs every tab's onLayout first: until it has drawn once,
+       the selected tab carries its own panel (same frame as the bar, not a
+       moment after it), faded out by the worm when it shows (wormDrawn) */
+    var early = on && worm && !T.wormDrawn && rn.Animated;
+    if (early) {
+      var pop = THEME.tabsPillOpacity == null ? 0.18 : THEME.tabsPillOpacity;
+      if (!T.pillEarlyOp) T.pillEarlyOp = new rn.Animated.Value(pop);
+      kids.push(React.createElement(rn.Animated.View, { key: 'zt-pill', pointerEvents: 'none', focusable: false, style: {
+        position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, borderRadius: THEME.tabsPillCorners || 0,
+        backgroundColor: THEME.tabsPillColor || '#ffffff', opacity: T.pillEarlyOp } }));
+      if (!T.done['tabs pill before the worm']) done('tabs pill before the worm');
     }
     if (on && !worm) {
       kids.push(React.createElement(rn.View, { key: 'zt-pill', pointerEvents: 'none', focusable: false, style: {
@@ -4296,9 +4353,17 @@
   function wormOn() {
     var React = T.React, A = T.rn && T.rn.Animated;
     return APP === 'home' && !!THEME.tabsPillOn && THEME.animTabs !== false && canAnimate() &&
-           typeof React.useState === 'function' && typeof A.subtract === 'function';
+           typeof React.useState === 'function' && typeof A.subtract === 'function' &&
+           typeof A.add === 'function' && typeof A.multiply === 'function';
   }
   function wormChanged() { wormListeners.forEach(function (f) { try { f(); } catch (e) {} }); }
+  /* after the worm's first frame on screen: the panel of the selected tab
+     (tabPill, early) goes away */
+  function wormDrawn(drawn) {
+    if (!drawn || T.wormDrawn) return;
+    T.wormDrawn = true;
+    if (T.pillEarlyOp) try { T.pillEarlyOp.setValue(0); } catch (e) {}
+  }
   function wormLayout(props, sid) {
     T.wormFns = T.wormFns || {};
     var own = props.onLayout;
@@ -4339,114 +4404,132 @@
     if (!T.done['tabs worm']) done('tabs worm');
   }
   /* The worm on the native driver: left / width are layout (JS driver,
-     every frame on the JS thread, which is busy mounting the new tab's row
-     right then: the panel jerked). Here it is three pieces moved only by
-     transforms: a left cap and a right cap (half of a rounded box each,
-     translateX) and a plain middle box 100 px wide (translateX + scaleX; it
-     scales from its centre). One Animated.Value 0 -> 1 per move; where each
-     edge is at each moment (lead edge first, the other after, eased) is
-     worked out here as points of an interpolation. */
-  var WORM_POINTS = 16;
+     every frame on the JS thread). Here two Animated.Values, the left and
+     the right edge (px in the tabs row), drive three pieces by transforms
+     only (native add / multiply nodes): a left cap and a right cap (half of
+     a rounded box each, translateX) and a plain middle box 100 px wide
+     (translateX + scaleX; it scales from its centre). The move starts
+     from wormGo() the moment the bar draws the new tab: no re-render is
+     waited for. A tab change keeps the JS thread busy ~300 ms (the Home
+     mounting the new row); the earlier way (new interpolations, then start
+     in an effect) only moved after that, so the pill looked slow. The lead
+     edge goes first and the other follows (both over the whole time, own
+     easing: no delay, which would be a JS timer). */
+  function wormLead(t) { return easeOut(Math.max(0, Math.min(1, t / 0.65))); }
+  function wormTrail(t) { return easeOut(Math.max(0, Math.min(1, (t - 0.35) / 0.65))); }
   function wormEdges(m, t) {
     var right = m.to[0] > m.from[0];
-    var lead = easeOut(Math.max(0, Math.min(1, t / 0.65)));
-    var trail = easeOut(Math.max(0, Math.min(1, (t - 0.35) / 0.65)));
+    var lead = wormLead(t), trail = wormTrail(t);
     var kl = right ? trail : lead, kr = right ? lead : trail;
     return [m.from[0] + (m.to[0] - m.from[0]) * kl, m.from[1] + (m.to[1] - m.from[1]) * kr];
+  }
+  /* where the panel is now (a move cut short goes on from there) */
+  function wormNow(w) {
+    var m = w && w.move;
+    if (!m) return w && w.at;
+    var t = (Date.now() - m.t0) / m.ms;
+    return t >= 1 ? m.to : wormEdges(m, Math.max(0, t));
+  }
+  function wormStop(v) {
+    (v.runs || []).forEach(function (a) { try { a.stop(); } catch (e) {} });
+    v.runs = [];
+  }
+  /* to the tab sid (its onLayout place), now; resumeMs = the time left of
+     a move the bar mounted again in the middle of */
+  function wormGo(sid, resumeMs) {
+    var v = T.wormV, w = T.wormWas || {};
+    var lay = sid && T.wormLayouts && T.wormLayouts[sid];
+    if (!v || !lay) return;
+    var to = [lay.x, lay.x + lay.w];
+    var at = wormNow(w);
+    var done1 = w.move && Date.now() - w.move.t0 >= w.move.ms;
+    if (!resumeMs && w.sel === sid && at && (!w.move || done1) &&
+        Math.abs(at[0] - to[0]) < 0.5 && Math.abs(at[1] - to[1]) < 0.5) return;
+    if (!resumeMs && w.sel === sid && w.move && !done1) return;   /* already on its way there */
+    wormStop(v);
+    var moving = !!(w.sel && at && (w.sel !== sid || resumeMs));
+    var ms = resumeMs || (THEME.animTabsMs > 0 ? THEME.animTabsMs : 280);
+    if (!moving) {
+      v.l.setValue(to[0]); v.r.setValue(to[1]);
+      T.wormWas = { sel: sid, at: to, move: null };
+      return;
+    }
+    var m = { from: at, to: to, t0: Date.now(), ms: ms };
+    var right = to[0] > at[0];
+    v.l.setValue(at[0]); v.r.setValue(at[1]);
+    var A = T.rn.Animated;
+    try {
+      v.runs = [A.timing(v.l, { toValue: to[0], duration: ms, easing: right ? wormTrail : wormLead, useNativeDriver: true, isInteraction: false }),
+                A.timing(v.r, { toValue: to[1], duration: ms, easing: right ? wormLead : wormTrail, useNativeDriver: true, isInteraction: false })];
+      v.runs.forEach(function (a) { a.start(); });
+    } catch (e) { v.l.setValue(to[0]); v.r.setValue(to[1]); m = null; log('tabs worm: ' + e); }
+    T.wormWas = { sel: sid, at: to, move: m };
+    if (m && (T.wormLogs = (T.wormLogs || 0) + 1) <= 6)
+      log('tabs worm ' + (w.sel === sid ? '(mid-move)' : w.sel) + ' -> ' + sid + (right ? ' (right)' : ' (left)') + ', native, at once');
   }
   function TabWormNative() {
     var React = T.React, rn = T.rn, A = rn.Animated;
     var tick = React.useState(0)[1];
     var r = React.useRef(null);
     if (!r.current) {
-      /* the bar may mount again in the middle of a move: it goes on from
-         where the panel was, in the time left */
-      var was = T.wormWas, wm = was && was.move, left = wm ? wm.ms - (Date.now() - wm.t0) : 0;
-      var resume = left > 30;
-      r.current = { p: new A.Value(1), sel: resume ? '\u0000resume' : was ? was.sel : '',
-                    at: resume ? wormEdges(wm, 1 - left / wm.ms) : was ? was.at : null, move: null, run: null,
-                    seg: null, segKey: '', start: false, resumeMs: resume ? left : 0 };
+      /* new values per mount (the native nodes go with the old views),
+         starting where the panel is */
+      var at0 = wormNow(T.wormWas);
+      r.current = { l: new A.Value(at0 ? at0[0] : 0), r: new A.Value(at0 ? at0[1] : 0), runs: [], nodes: null };
     }
     var v = r.current;
+    T.wormV = v;
     React.useEffect(function () {
       var f = function () { tick(function (n) { return n + 1; }); };
       wormListeners.push(f);
+      /* mounted in the middle of a move: the rest of it */
+      var w = T.wormWas, wm = w && w.move, left = wm ? wm.ms - (Date.now() - wm.t0) : 0;
+      if (left > 30) wormGo(w.sel, left);
       return function () {
         var i = wormListeners.indexOf(f);
         if (i >= 0) wormListeners.splice(i, 1);
-        if (v.run) try { v.run.stop(); } catch (e) {}
+        wormStop(v);
+        if (T.wormV === v) T.wormV = null;
       };
     }, []);
     /* every hook before any return null: a render with more hooks than the
        one before is a React error, and the whole Home went (only the
        wallpaper stayed) */
     var sel = T.wormSel, lay = sel && T.wormLayouts && T.wormLayouts[sel];
-    var to = lay ? [lay.x, lay.x + lay.w] : null;
-    var ms = THEME.animTabsMs > 0 ? THEME.animTabsMs : 280;
-    /* where the panel is now (a move cut short goes on from there) */
-    var now = function () {
-      var m = v.move;
-      if (!m) return v.at;
-      var t = (Date.now() - m.t0) / m.ms;
-      return t >= 1 ? m.to : wormEdges(m, Math.max(0, t));
-    };
-    var key = to ? sel + '|' + to[0] + '|' + to[1] : v.segKey;
-    if (to && v.segKey !== key) {
-      var moving = v.sel && v.at && v.sel !== sel;
-      var m = moving ? { from: now(), to: to, t0: Date.now(), ms: v.resumeMs || ms } : null;
-      v.resumeMs = 0;
-      var ins = [], ls = [], rs = [];
-      for (var i = 0; i <= WORM_POINTS; i++) {
-        var t = i / WORM_POINTS, e = m ? wormEdges(m, t) : to;
-        ins.push(t); ls.push(e[0]); rs.push(e[1]);
-      }
-      v.seg = { ins: ins, ls: ls, rs: rs };
-      v.move = m;
-      v.start = !!m;
-      if (m && (T.wormLogs = (T.wormLogs || 0) + 1) <= 6)
-        log('tabs worm ' + (v.sel.charAt(0) === '\u0000' ? '(mid-move)' : v.sel) + ' -> ' + sel + (to[0] > m.from[0] ? ' (right)' : ' (left)') + ', native');
-      v.segKey = key;
-      v.sel = sel;
-      v.at = to;
-      T.wormWas = { sel: sel, at: to, move: m };
-    }
-    React.useEffect(function () {
-      /* after the new interpolations are on screen */
-      if (!v.start) return;
-      v.start = false;
-      if (v.run) try { v.run.stop(); } catch (e) {}
-      v.p.setValue(0);
-      if (v.move) v.move.t0 = Date.now();
-      try {
-        v.run = A.timing(v.p, { toValue: 1, duration: v.move ? v.move.ms : ms, easing: function (t) { return t; },
-                                useNativeDriver: true, isInteraction: false });
-        v.run.start();
-      } catch (e) { v.p.setValue(1); log('tabs worm: ' + e); }
-    }, [v.segKey]);
-    if (!lay || !v.seg) return null;
-    var s = v.seg, h = lay.h;
+    /* first place, or the tab's place changed (font, width): no move */
+    React.useEffect(function () { if (lay) wormGo(sel); });
+    var drawn = !!lay;
+    React.useEffect(function () { wormDrawn(drawn); });
+    if (!drawn) return null;
+    var h = lay.h;
     var R = Math.max(0, Math.min(Number(THEME.tabsPillCorners) || 0, h / 2));
     var op = THEME.tabsPillOpacity == null ? 0.18 : THEME.tabsPillOpacity;
     /* a full panel: the pieces overlap half a pixel (no seam); see-through:
        end to end */
     var ov = op >= 1 ? 0.5 : 0;
     var colour = THEME.tabsPillColor || '#ffffff';
-    var mid = s.ins.map(function (t, i) { return { c: (s.ls[i] + s.rs[i]) / 2, w: Math.max(0.01, s.rs[i] - s.ls[i] - 2 * R + 2 * ov) }; });
-    var it = function (out) { return v.p.interpolate({ inputRange: s.ins, outputRange: out }); };
+    if (!v.nodes || v.nodes.R !== R || v.nodes.ov !== ov) {
+      v.nodes = {
+        x: A.add(A.multiply(A.add(v.l, v.r), 0.5), -50),
+        sx: A.multiply(A.add(A.subtract(v.r, v.l), 2 * ov - 2 * R), 0.01),
+        rx: A.add(v.r, -R),
+        R: R, ov: ov
+      };
+    }
+    var nd = v.nodes;
     var kids = [React.createElement(A.View, { key: 'mid', style: {
       position: 'absolute', left: 0, top: lay.y, width: 100, height: h, backgroundColor: colour, opacity: op,
-      transform: [{ translateX: it(mid.map(function (q) { return q.c - 50; })) },
-                  { scaleX: it(mid.map(function (q) { return q.w / 100; })) }] } })];
+      transform: [{ translateX: nd.x }, { scaleX: nd.sx }] } })];
     if (R > 0) {
-      var cap = function (k, xs, inner) {
+      var cap = function (k, x, inner) {
         return React.createElement(A.View, { key: k, style: {
           position: 'absolute', left: 0, top: lay.y, width: R, height: h, overflow: 'hidden',
-          transform: [{ translateX: it(xs) }] } },
+          transform: [{ translateX: x }] } },
           React.createElement(rn.View, { style: { position: 'absolute', left: inner, top: 0, width: 2 * R, height: h,
                                                   borderRadius: R, backgroundColor: colour, opacity: op } }));
       };
-      kids.push(cap('l', s.ls, 0));
-      kids.push(cap('r', s.rs.map(function (x) { return x - R; }), -R));
+      kids.push(cap('l', v.l, 0));
+      kids.push(cap('r', nd.rx, -R));
     }
     if (!T.done['tabs worm native']) done('tabs worm native');
     return React.createElement(rn.View, { pointerEvents: 'none', focusable: false,
@@ -4500,6 +4583,7 @@
       v.at = to;
       T.wormWas = { sel: sel, at: to };
     }, [sel, to && to[0], to && to[1]]);
+    React.useEffect(function () { wormDrawn(!!lay); });
     if (!lay) return null;
     var line = THEME.tabsPillBorderWidth > 0;
     var box = { position: 'absolute', left: v.l, width: A.subtract(v.r, v.l), top: lay.y, height: lay.h };
@@ -9256,7 +9340,7 @@
           libHide = (THEME.hideRowInLibrary || tileRatio() > 1) && !!T.homeLift;
           tabA = tabAnimOn() && tabAnimValues();
           /* the Favourites tab with no favourites hides its row */
-          favOp = THEME.tabFavOn ? favEmptyOpacity() : null;
+          favOp = extraTabsOn() ? favEmptyOpacity() : null;
         }
         if (libHide || tabA || favOp) {
           var AN = T.rn.Animated, rowSt = {};
@@ -9319,7 +9403,7 @@
            THEME.box1On || THEME.box2On || THEME.box3On || THEME.user ||
            THEME.searchDetached || THEME.settingsDetached || THEME.profileDetached || THEME.iconsNav ||
            THEME.fakeTrophies || THEME.deco1On || THEME.deco2On || THEME.deco3On || THEME.deco4On ||
-           THEME.folders || THEME.menuMove || THEME.playInfoOn || THEME.tabFavOn || THEME.animToast || THEME.debugOverlay) &&
+           THEME.folders || THEME.menuMove || THEME.playInfoOn || extraTabsOn() || THEME.animToast || THEME.debugOverlay) &&
           T.root && props && typeof props === 'object' && props.style === T.root) {
         var children = props.children;
         children = Array.isArray(children) ? children.slice() : children == null ? [] : [children];
@@ -9336,7 +9420,7 @@
           front.push(T.React.createElement(OwnClock, { key: 'theme-own-clock' }));
         if (titleMode() === 'fake' && T.React && APP === 'home')
           front.push(T.React.createElement(FakeTitle, { key: 'theme-fake-title' }));
-        if (THEME.tabFavOn && T.React && APP === 'home' && typeof T.React.useState === 'function')
+        if (extraTabsOn() && T.React && APP === 'home' && typeof T.React.useState === 'function')
           front.push(T.React.createElement(FavEmptyMsg, { key: 'theme-fav-empty' }));
         if (logoOn() && T.React && typeof T.React.useState === 'function')
           front.push(T.React.createElement(GameLogo, { key: 'theme-game-logo' }));
@@ -9770,6 +9854,7 @@
       hookAtom(exp);
       hookAppItems(exp);
       patchSpaces(exp, id);
+      hookTitleSpace(exp);
       hookSpaceFocus(exp);
       hookDefaultTile(exp);
       hookHubViewer(exp);

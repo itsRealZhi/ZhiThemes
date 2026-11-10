@@ -8,6 +8,8 @@ of a text of the same colour (~75% of it). These are pure white (the
 symbol cut out, transparent), so the tint gives the exact colour. They go
 in THEME/particles to be embedded with the particle textures and written to
 /data/ZhiThemes/Assets/particles/btn_<name>.png at start.
+particles/ui_empty_box.png (empty tab picture) is the user's own icon, not
+made here.
 """
 import os
 import sys

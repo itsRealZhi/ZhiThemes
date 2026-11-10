@@ -435,6 +435,12 @@ struct TokenOverride {
   bool active;
 };
 std::vector<TokenOverride> g_token_overrides;
+/* a colour token got a new value (another theme, Apply): the widgets that
+   are already drawn (control centre icons, top bar buttons) keep the colour
+   they read when made, until focus passes over them. theme_tick (UI thread)
+   then tells StyleManager's listeners, as the PS5 does when its own colour
+   theme changes */
+std::atomic<bool> g_tokens_refresh{false};
 
 int hex_digit(char c) {
   if (c >= '0' && c <= '9') return c - '0';
@@ -579,7 +585,7 @@ void apply_token_overrides(MonoObject *colours, const std::string &script) {
   }
   for (TokenOverride &o : g_token_overrides)
     o.active = false;
-  int applied = 0;
+  int applied = 0, changed = 0;
   for (const auto &kv : wanted) {
     const std::string &hex = kv.second;
     if (hex.size() != 7 && hex.size() != 9)
@@ -604,9 +610,9 @@ void apply_token_overrides(MonoObject *colours, const std::string &script) {
     for (TokenOverride &e : g_token_overrides)
       if (e.key == kv.first)
         o = &e;
+    void *get_args[1] = {key};
+    MonoObject *boxed = call(colours, "get_Item", 1, get_args, "tokens");
     if (!o) {
-      void *get_args[1] = {key};
-      MonoObject *boxed = call(colours, "get_Item", 1, get_args, "tokens");
       if (!boxed) {
         zt_log("tokens: %s does not exist", kv.first.c_str());
         continue;
@@ -619,9 +625,12 @@ void apply_token_overrides(MonoObject *colours, const std::string &script) {
     unsigned char value[32] = {};
     memcpy(value, o->stock, kUiColorBytes);
     memcpy(value, c, sizeof(c));
+    if (boxed && memcmp(mono_object_unbox(boxed), value, sizeof(c)) != 0)
+      ++changed;
     void *set_args[2] = {key, value};
-    if (call(colours, "set_Item", 2, set_args, "tokens"))
-      ++applied;
+    bool set_ok = false;
+    call(colours, "set_Item", 2, set_args, "tokens", &set_ok);
+    applied += set_ok;
   }
   /* tokens taken out of the list go back to stock */
   int restored = 0;
@@ -631,12 +640,42 @@ void apply_token_overrides(MonoObject *colours, const std::string &script) {
     MonoString *key = mono_string_new(mono_domain_get(), o.key.c_str());
     unsigned char value[32] = {};
     memcpy(value, o.stock, kUiColorBytes);
+    void *get_args[1] = {key};
+    MonoObject *boxed = call(colours, "get_Item", 1, get_args, "tokens");
+    if (boxed && memcmp(mono_object_unbox(boxed), value, 4 * sizeof(float)) != 0)
+      ++changed;
     void *set_args[2] = {key, value};
-    if (call(colours, "set_Item", 2, set_args, "tokens"))
-      ++restored;
+    bool ok = false;
+    call(colours, "set_Item", 2, set_args, "tokens", &ok);
+    restored += ok;
   }
   if (applied || restored)
-    zt_log("tokens: %d set, %d back to stock", applied, restored);
+    zt_log("tokens: %d set, %d back to stock, %d changed", applied, restored, changed);
+  if (changed)
+    g_tokens_refresh = true;
+}
+
+/* UI thread: the drawn widgets read the colour tokens again
+   (StyleManager.StyleManagerUpdated(colorUpdated, shapeUpdated), private,
+   raises OnStyleManagerUpdated) */
+void tokens_refresh_tick() {
+  if (!g_tokens_refresh.exchange(false) || !g_pui)
+    return;
+  MonoClass *ui_system = mono_class_from_name(g_pui, "Sce.PlayStation.PUI", "UISystem");
+  MonoMethod *get_sm = ui_system ? find_method(ui_system, "get_StyleManager", 0) : nullptr;
+  MonoObject *exc = nullptr;
+  MonoObject *sm = get_sm ? mono_runtime_invoke(get_sm, nullptr, nullptr, &exc) : nullptr;
+  if (!sm || exc) {
+    zt_log("tokens: refresh: StyleManager unavailable");
+    return;
+  }
+  uint8_t colour = 1, shape = 0; /* MonoBoolean */
+  void *args[2] = {&colour, &shape};
+  bool ok = false;
+  call(sm, "StyleManagerUpdated", 2, args, "tokens refresh", &ok);
+  /* still ours after the event (not the stock set loaded again) */
+  log_resolved(sm, "button.label.enabled", "after the refresh");
+  zt_log("tokens: drawn widgets told the colours changed (%s)", ok ? "ok" : "failed");
 }
 
 /* THEME fields that are shape tokens (StyleManager.ActiveShapeToken,
@@ -3546,6 +3585,7 @@ void theme_tick() {
   if (g_quit)
     return;
   system_font_tick();
+  tokens_refresh_tick();
   rename_tick();
   zt_native_tick();
 }
