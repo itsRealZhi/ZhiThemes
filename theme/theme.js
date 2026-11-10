@@ -293,7 +293,7 @@
     systemFontBold: '',         /* bold file of systemFont (texts in bold); empty = its '-Bold' file if uploaded ('') */
     systemFontItalic: '',       /* italic file of systemFont; empty = its '-Italic' / '-MediumItalic' file if uploaded ('') */
     systemFontBoldItalic: '',   /* bold italic file of systemFont; empty = its '-BoldItalic' file if uploaded ('') */
-    systemFontMissing: 'system', /* a style with no file of yours: 'system' = the system font in that style, 'same' = your font without the style ('system') */
+    systemFontMissing: 'same',  /* a style with no file of yours: 'same' = your font without the style, 'system' = the system font in that style ('same') */
     elementFont: '',            /* 2nd font, for the Home texts whose FontStyle is 'element font', no restart: a system one or uploaded from the editor ('') */
     fontStyle: '',              /* font of ALL texts: 'bold', 'italic', 'bold italic' or 'element font'; empty = stock ('') */
     /* --- background --- */
@@ -315,7 +315,7 @@
     particlesCount: 40,         /* how many, 1-120 (40) */
     particlesSize: 6,           /* size of the nearest ones, px; far ones are smaller (6) */
     particlesColor: '#ffffff',  /* colour ('#ffffff') */
-    particlesOpacity: 0.7,      /* brightest opacity, 0-1 (0.7) */
+    particlesOpacity: 0.7,      /* brightest opacity, 0-1; with a style 0.7 = as made, lower fainter, higher brighter (0.7) */
     particlesSpeed: 1,          /* 1 normal, 0.5 slow, 2 fast (1) */
     particlesImage: '',         /* a picture (uploaded icon .png) instead of round dots ('') */
     particlesStyle: '',         /* built-in style ('' = the dots or picture above): snowfall, sakura, autumn_leaves, fireflies, rain, bokeh, golden_dust, embers, aurora, magic_sparkles, starfield, meteor_shower, warp, nebula, digital_rain, ps_symbols, confetti, bubbles, hearts, neon_wave, xmas_lights, xmas_eve, xmas_ornaments ('') */
@@ -4993,7 +4993,8 @@
             return typeof k.orig[name] === 'function' ? k.orig[name].apply(this, arguments) : true;
           }
           take(e);
-          if (pressed(e)) act();
+          /* ←/→ held down go on moving through the games (Repeat) */
+          if (pressed(e) || (e && e.keyEventType === 'Repeat' && (name === 'onLeftKeyDown' || name === 'onRightKeyDown'))) act();
           return false;
         };
       };
@@ -7846,6 +7847,10 @@
     }, []);
     if (ref.current.el) return ref.current.el;
     var dir = 'file://' + ZT_ASSETS + 'particles/';
+    /* particlesOpacity on a style: 0.7 (the default) = the style as made,
+       lower fainter, higher brighter (each point at most 1) */
+    var bright = THEME.particlesOpacity == null || THEME.particlesOpacity === '' ? 1
+      : Math.max(0, Math.min(1, +THEME.particlesOpacity || 0)) / 0.7;
     return ref.current.el = React.createElement(rn.View, {
       pointerEvents: 'none', style: { position: 'absolute', left: 0, top: 0, width: 1920, height: 1080, overflow: 'hidden' }
     }, ref.current.list.map(function (p, i) {
@@ -7855,7 +7860,8 @@
       ];
       if (p.rs) tf.push({ rotate: p.v.interpolate({ inputRange: p.ins, outputRange: p.rs }) });
       var st = { position: 'absolute', left: 0, top: 0, width: p.size, height: p.size,
-                 opacity: p.v.interpolate({ inputRange: p.oin, outputRange: p.ops }), transform: tf };
+                 opacity: p.v.interpolate({ inputRange: p.oin, outputRange: bright === 1 ? p.ops
+                   : p.ops.map(function (o) { return +Math.min(1, o * bright).toFixed(3); }) }), transform: tf };
       if (p.tint) st.tintColor = p.tint;
       return React.createElement(A.View, {
         key: 'sp' + i, style: { position: 'absolute', left: p.x, top: p.y, width: p.size, height: p.size,
@@ -8008,10 +8014,12 @@
     }
     vignetteElements(out);
     edgeElements(out);
+    /* the key holds every particle field: both kinds are built once per
+       mount, so a changed field (opacity, colour, size...) needs a new one */
     if (THEME.particlesOn && typeof React.useRef === 'function' && rn.Animated)
       out.push(particleStyle()
-        ? React.createElement(StyledParticles, { key: 'theme-particles-' + THEME.particlesStyle })
-        : React.createElement(Particles, { key: 'theme-particles' }));
+        ? React.createElement(StyledParticles, { key: 'theme-particles-' + particleSig() })
+        : React.createElement(Particles, { key: 'theme-particles-' + particleSig() }));
     return out;
   }
 

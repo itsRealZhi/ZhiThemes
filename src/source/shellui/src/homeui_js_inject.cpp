@@ -1986,7 +1986,7 @@ std::string font_table() {
 std::string g_sysfont;        /* systemFont, full path; "" = system fonts */
 std::string g_elemfont;       /* elementFont, full path, for SST-BoldItalic */
 /* the systemFont file for each style (kStyleNames): "" = the SST file of
-   that style (systemFontMissing 'system') */
+   that style (only with systemFontMissing 'system') */
 std::string g_style_fonts[4];
 std::string g_sysfont_value;  /* every font field as last read */
 std::atomic<bool> g_sysfont_apply{false};
@@ -2016,8 +2016,9 @@ std::string font_path(const std::string &name, const char *key) {
  * that style from the systemFont family next to it is used
  * ("Manrope-Medium.ttf" -> "Manrope-Bold.ttf", "Manrope-MediumItalic.ttf",
  * "Font.ttf" -> "Font-Italic.ttf"); with none, systemFontMissing says what
- * texts in that style get: 'system' = the system's SST file (the style
- * shows, in the stock font), 'same' = the systemFont (no style).
+ * texts in that style get: 'same' (also when empty or missing) = the
+ * systemFont (no style), 'system' = the system's SST file (the style
+ * shows, in the stock font).
  */
 const char *const kStyleNames[4] = {"", "Bold", "Italic", "BoldItalic"};
 
@@ -2083,7 +2084,7 @@ void apply_system_font(const std::string &script) {
   g_sysfont_value = value;
   const std::string sys_path = font_path(sys, "systemFont");
   const std::string elem_path = font_path(elem, "elementFont");
-  const bool same = theme_string(script, "systemFontMissing") == "same";
+  const bool same = theme_string(script, "systemFontMissing") != "system";
   std::string styles[4];
   for (int i = 0; i < 4 && !sys_path.empty(); ++i) {
     styles[i] = i == 0 ? sys_path : font_path(theme_string(script, kStyleKeys[i]), kStyleKeys[i]);

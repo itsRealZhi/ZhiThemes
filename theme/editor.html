@@ -883,7 +883,7 @@
     particlesCount: ['Particle count', '1-120 (more = more work for the PS5)'],
     particlesSize: ['Particle size', 'Size of the nearest ones, px (far ones are smaller)'],
     particlesColor: ['Particle colour', ''],
-    particlesOpacity: ['Particle opacity', 'Brightest opacity, 0-1'],
+    particlesOpacity: ['Particle opacity', 'Brightest opacity, 0-1; with a style 0.7 = as the style was made, lower fainter, higher brighter'],
     particlesSpeed: ['Particle speed', '1 normal, 0.5 slow, 2 fast'],
     particlesImage: ['Particle picture', 'An uploaded .png instead of round dots'],
     particlesStyle: ['Particle style', 'Built-in styles (from AniketosHEN). With a style: count, speed, scale and hue count; size, colour, opacity and picture are for the dots'],
@@ -1205,6 +1205,18 @@
       return m && m[2] === key ? m[1] + m[2] + m[3] + value + m[5] + (m[6] || '') : line;
     }).join('\n');
     source = source.slice(0, b.from) + body + source.slice(b.to);
+  }
+  /* a new font: its styles without a file of their own stay in that font
+     (systemFontMissing 'same'), not the system SST; themes from before
+     had 'system' as the stock value of that hidden field */
+  function fontMissingSame() {
+    var b = block(source);
+    if (!b) return;
+    source = source.slice(0, b.from) + source.slice(b.from, b.to).split('\n').map(function (line) {
+      var m = LINE.exec(line);
+      if (!m || m[2] !== 'systemFontMissing' || m[4] === "'same'") return line;
+      return m[1] + m[2] + m[3] + "'same'" + m[5] + (m[6] || '').replace("('system')", "('same')");
+    }).join('\n') + source.slice(b.to);
   }
   function factoryOf(hint) {
     var m = /\((-?\d+(?:\.\d+)?|true|false|'[^']*')\)\s*$/.exec(hint || '');
@@ -1605,6 +1617,7 @@
            Big name's place becomes fakeTitleX/Y), then the mode picked here */
         var moved = f.key === 'titleMode' && values().cur.__old && migrateTitles();
         setField(f.key, jsString(sel.value)); mark(jsString(sel.value));
+        if (f.key === 'systemFont' && sel.value) fontMissingSame();
         /* picking a particle style turns the particles on */
         if (f.key === 'particlesStyle' && sel.value && foldField('particlesOn') !== 'true') { setField('particlesOn', 'true'); renderTabs(); }
         if (moved) { renderTabs(); status('old name fields converted (game / fake title): Apply to keep them'); }
@@ -4659,8 +4672,8 @@
     { id: 'scrBackground', name: 'Background', keys: ['#Wallpaper', 'wallpaperOn', 'wallpaper', 'wallpaperVideoSound', 'wallpaperVideoVolume', 'customBgOn',
       '#Darken', 'bgDim', 'bgDimColor', 'bgColor', 'bgGradient', 'bgGradientHeight', 'bgGradientCurve', 'bgGradientSteps',
       'bgVignette', 'bgVignetteSize', 'bgEdges', 'bgEdgesHeight', '#Overlay picture', 'bgOverlayOn', 'bgOverlay', 'bgOverlayOpacity'] },
-    { id: 'scrParticles', name: 'Particles', keys: ['particlesOn', 'particlesStyle', 'particlesCount', 'particlesSpeed', 'particlesScale', 'particlesHue',
-      '#Dots / your picture', 'particlesSize', 'particlesColor', 'particlesOpacity', 'particlesImage'] },
+    { id: 'scrParticles', name: 'Particles', keys: ['particlesOn', 'particlesStyle', 'particlesCount', 'particlesSpeed', 'particlesScale', 'particlesHue', 'particlesOpacity',
+      '#Dots / your picture', 'particlesSize', 'particlesColor', 'particlesImage'] },
     { id: 'scrFonts', name: 'Fonts', keys: ['systemFont', 'systemFontBold', 'systemFontItalic', 'systemFontBoldItalic', 'systemFontMissing', 'elementFont', 'fontStyle'] },
     { id: 'scrAnimations', name: 'Animations', keys: ['#Speed', 'animationSpeed', 'rowSpeed', 'rowFastRepeat', 'rowRepeatWindow',
       '#Tabs', 'animTabs', 'animTabsMs', 'animTabsSlide', 'animFav', '#Names', 'animNames', 'animNamesStyle', 'animNamesMs',
@@ -6295,8 +6308,12 @@
     });
     return u;
   }
+  /* set while Use switches themes: the editor still holds the text of
+     the old theme until the page reloads, so the files of the new one would
+     look unused and Clean would show for a moment */
+  var themeSwitching = false;
   function themesUsed() {
-    if (!themesInfo.themes.length || !themesInfo.themes[0].list) return Promise.resolve();
+    if (themeSwitching || !themesInfo.themes.length || !themesInfo.themes[0].list) return Promise.resolve();
     return Promise.all(themesInfo.themes.map(function (t) {
       if (t.name === themesInfo.active && source) { t.use = themeUse(t, source, loaded); return null; }
       var key = t.name + '@' + t.modified + '@' + t.files + '@' + t.bytes, c = themeUseCache[key];
@@ -6312,10 +6329,13 @@
   function useThemeNamed(n) {
     if (n === themesInfo.active || !unsavedOk()) return Promise.resolve();
     status('switching to ' + n + '…');
+    themeSwitching = true;
+    themesInfo.themes.forEach(function (t) { t.use = null; });
+    renderThemes();
     return request('POST', '/themes/use?name=' + enc(n)).then(gotThemes).then(function () {
       status('theme ' + n + ' in use; the Home reloads', 'ok');
       setTimeout(function () { location.reload(); }, 700);
-    });
+    }, function (e) { themeSwitching = false; fetchThemes().catch(function () {}); throw e; });
   }
   function askThemeName(text, def) {
     var n = prompt(text + '\n(letters, digits, - _ . only; spaces become -)', def);
@@ -6335,7 +6355,7 @@
                      ') in its folder are not used' : '') + '">' +
                     t.use.files + ' file' + (t.use.files === 1 ? '' : 's') + ' · ' + themeBytes(t.use.bytes) + '</span>'
                   : '<span class="th-size" title="its wallpapers, icons and fonts (in its folder)">' + t.files + ' files · ' + themeBytes(t.bytes) + '</span>') +
-           (t.use && t.use.unused ? '<button data-a="clean" title="Delete the ' + t.use.unused + ' file' + (t.use.unused > 1 ? 's' : '') +
+           (t.use && t.use.unused && !themeSwitching ? '<button data-a="clean" title="Delete the ' + t.use.unused + ' file' + (t.use.unused > 1 ? 's' : '') +
               ' in the folder of this theme that it does not use (' + themeBytes(t.use.unusedBytes) + ')">Clean ' + themeBytes(t.use.unusedBytes) + '</button>' : '') +
            (on ? '<span class="th-size">in use</span>' : '<button data-a="use" title="Use this theme (the Home reloads)">Use</button>') +
            '<button data-a="ren" title="Rename">Rename</button>' +
@@ -6476,7 +6496,11 @@
     status('uploading font (' + Math.round(file.size / 1024) + ' KB)…');
     upPost('/font?name=' + encodeURIComponent(name), file)
       .then(function (r) { return r.text().then(function (t) { if (!r.ok) throw new Error(t); }); })
-      .then(function () { setField(fontUploadKey, jsString(name)); renderTabs(); return apply(); })
+      .then(function () {
+        setField(fontUploadKey, jsString(name));
+        if (fontUploadKey === 'systemFont') fontMissingSame();
+        renderTabs(); return apply();
+      })
       .then(function () {
         status('font ' + name + ' uploaded', 'ok');
       })
