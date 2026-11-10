@@ -56,11 +56,22 @@ struct Sink {
   CURL *curl = nullptr;
   const std::function<bool(const char *, size_t, long, long long)> *chunk = nullptr; /* handed on instead */
   bool stopped = false;
+  bool follow = false; /* redirects followed: each answer must still come from an allowed host */
 };
+
+bool allowed(const std::string &url);
 
 size_t on_data(char *ptr, size_t size, size_t n, void *user) {
   Sink *s = static_cast<Sink *>(user);
   const size_t len = size * n;
+  if (s->follow) {
+    char *eff = nullptr;
+    curl_easy_getinfo(s->curl, CURLINFO_EFFECTIVE_URL, &eff);
+    if (!eff || !allowed(eff)) {
+      s->stopped = true;
+      return 0;
+    }
+  }
   if (s->got + len > s->max) {
     s->over = true;
     return 0;
@@ -83,13 +94,24 @@ size_t on_data(char *ptr, size_t size, size_t n, void *user) {
   return len;
 }
 
-/* https://www.steamgriddb.com/... or https://cdn<N>.steamgriddb.com/... */
-bool allowed(const std::string &url) {
+std::string host_of(const std::string &url) {
   if (url.rfind("https://", 0) != 0)
+    return "";
+  const size_t end = url.find_first_of("/?#", 8);
+  return url.substr(8, end == std::string::npos ? std::string::npos : end - 8);
+}
+
+/* motionbgs.com: animated game backgrounds the user searches in the
+   editor (its pages and its own /dl/ links redirect inside the site) */
+bool site_follows(const std::string &url) { return host_of(url) == "motionbgs.com"; }
+
+/* https://www.steamgriddb.com/..., https://cdn<N>.steamgriddb.com/...
+   or https://motionbgs.com/... */
+bool allowed(const std::string &url) {
+  const std::string host = host_of(url);
+  if (host.empty())
     return false;
-  const size_t end = url.find('/', 8);
-  const std::string host = url.substr(8, end == std::string::npos ? std::string::npos : end - 8);
-  if (host == "www.steamgriddb.com")
+  if (host == "www.steamgriddb.com" || host == "motionbgs.com")
     return true;
   if (host.rfind("cdn", 0) != 0 || host.size() < 20)
     return false;
@@ -107,7 +129,13 @@ bool allowed(const std::string &url) {
 namespace {
 bool sgdb_fetch(const std::string &url, const std::string &key, std::string &body, FILE *file, long &http,
                 std::string &err, size_t max_bytes, long timeout_ms,
-                const std::function<bool(const char *, size_t, long, long long)> *chunk = nullptr);
+                const std::function<bool(const char *, size_t, long, long long)> *chunk = nullptr,
+                std::string *final_url = nullptr);
+}
+
+bool zt_web_page(const std::string &url, std::string &body, std::string &final_url, long &http, std::string &err,
+                 size_t max_bytes) {
+  return sgdb_fetch(url, "", body, nullptr, http, err, max_bytes, 30000L, nullptr, &final_url);
 }
 
 bool zt_sgdb_get(const std::string &url, const std::string &key, std::string &body, long &http,
@@ -142,7 +170,8 @@ bool zt_sgdb_stream(const std::string &url, size_t max_bytes,
 namespace {
 bool sgdb_fetch(const std::string &url, const std::string &key, std::string &body, FILE *file, long &http,
                 std::string &err, size_t max_bytes, long timeout_ms,
-                const std::function<bool(const char *, size_t, long, long long)> *chunk) {
+                const std::function<bool(const char *, size_t, long, long long)> *chunk,
+                std::string *final_url) {
   body.clear();
   http = 0;
   if (!allowed(url)) {
@@ -169,13 +198,18 @@ bool sgdb_fetch(const std::string &url, const std::string &key, std::string &bod
   CURL *c = g_curl;
   curl_easy_reset(c);
   Sink sink{&body, max_bytes, false, file, 0, c, chunk};
+  sink.follow = site_follows(url);
   struct curl_blob ca {
     const_cast<unsigned char *>(zt_sgdb_ca_start), (size_t)(zt_sgdb_ca_end - zt_sgdb_ca_start), CURL_BLOB_NOCOPY
   };
   curl_easy_setopt(c, CURLOPT_URL, url.c_str());
   curl_easy_setopt(c, CURLOPT_USERAGENT, "ZhiThemes");
   curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
-  curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 0L);
+  curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, sink.follow ? 1L : 0L);
+  if (sink.follow) {
+    curl_easy_setopt(c, CURLOPT_MAXREDIRS, 4L);
+    curl_easy_setopt(c, CURLOPT_REDIR_PROTOCOLS_STR, "https");
+  }
   curl_easy_setopt(c, CURLOPT_CAINFO_BLOB, &ca);
   curl_easy_setopt(c, CURLOPT_SSL_VERIFYPEER, 1L);
   curl_easy_setopt(c, CURLOPT_SSL_VERIFYHOST, 2L);
@@ -190,6 +224,11 @@ bool sgdb_fetch(const std::string &url, const std::string &key, std::string &bod
     curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
   const CURLcode rc = curl_easy_perform(c);
   curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &http);
+  if (final_url) {
+    char *eff = nullptr;
+    curl_easy_getinfo(c, CURLINFO_EFFECTIVE_URL, &eff);
+    *final_url = eff ? eff : url;
+  }
   if (headers)
     curl_slist_free_all(headers);
   if (rc != CURLE_OK) {
@@ -203,6 +242,14 @@ bool sgdb_fetch(const std::string &url, const std::string &key, std::string &bod
 } // namespace
 
 #else
+
+bool zt_web_page(const std::string &, std::string &body, std::string &final_url, long &http, std::string &err, size_t) {
+  body.clear();
+  final_url.clear();
+  http = 0;
+  err = "not in this build";
+  return false;
+}
 
 bool zt_sgdb_get(const std::string &, const std::string &, std::string &body, long &http, std::string &err,
                  size_t) {

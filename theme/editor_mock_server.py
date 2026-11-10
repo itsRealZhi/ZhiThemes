@@ -288,7 +288,39 @@ class H(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _mbg(self):
+        """motionbgs.com through the PC, like /mbg/* on the PS5."""
+        u = urllib.parse.urlparse(self.path)
+        q = dict(urllib.parse.parse_qsl(u.query))
+        site = 'https://motionbgs.com/'
+        try:
+            if u.path in ('/mbg/search', '/mbg/page'):
+                ask = ('search?q=' + urllib.parse.quote(q.get('q', ''), safe='')) if u.path == '/mbg/search' else q.get('p', '')
+                if u.path == '/mbg/page' and not re.match(r'^tag:[A-Za-z0-9:/._-]+$', ask):
+                    return self._send(400, 'bad page')
+                req = urllib.request.Request(site + ask, headers={'User-Agent': 'ZhiThemes'})
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    at = r.geturl()[len(site):] if r.geturl().startswith(site) else ask
+                    return self._send(200, at + chr(10) + r.read().decode('utf-8', 'replace'))
+            if u.path == '/mbg/img':
+                p = q.get('u', '')
+                if not re.match(r'^(/i/c/[A-Za-z0-9/._-]+\.(jpg|webp)|/media/\d+/[A-Za-z0-9._-]+\.960x540\.mp4)$', p):
+                    return self._send(400, 'bad picture')
+                code, data = sgdb(site + p[1:])
+                return self._bytes(data, 'video/mp4' if p.endswith('.mp4') else 'image/jpeg')
+            if u.path == '/mbg/video':
+                i = q.get('id', '')
+                if not i.isdigit():
+                    return self._send(400, 'bad video')
+                code, data = sgdb(site + 'dl/hd/%s/' % i)
+                return self._bytes(data, 'video/mp4')
+        except Exception as e:
+            return self._send(502, 'motionbgs: %s' % e)
+        return self._send(404, 'not found')
+
     def do_GET(self):
+        if self.path.startswith('/mbg/'):
+            return self._mbg()
         if self.path == '/sgdb/key':  # like the PS5, only says if there is one
             return self._send(200, '{"set":%s}' % ('true' if state.get('sgkey') else 'false'), 'application/json')
         if self.path.startswith('/sgdb/'):

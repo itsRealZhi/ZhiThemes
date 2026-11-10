@@ -30,3 +30,8 @@ bool zt_sgdb_get_file(const std::string &url, const std::string &path, size_t &s
 bool zt_sgdb_stream(const std::string &url, size_t max_bytes,
                     const std::function<bool(const char *, size_t, long, long long)> &chunk, long &http,
                     std::string &err);
+/* a page of https://motionbgs.com (the editor's animated backgrounds
+   search): redirects inside the site are followed, final_url = the
+   address of the page that answered */
+bool zt_web_page(const std::string &url, std::string &body, std::string &final_url, long &http, std::string &err,
+                 size_t max_bytes);

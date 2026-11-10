@@ -12,6 +12,7 @@
 - **[stb_image / stb_image_resize2](https://github.com/nothings/stb)** by Sean Barrett (public domain) and **[msf_gif](https://github.com/notnullnotvoid/msf_gif)** by Miles Fogle (public domain): decoding, resizing and encoding of animated avatars on the PS5 (`src/source/shellui/include/zt_third/`).
 - **cJSON** (MIT) and the other code in `src/third_party`, each under its own license.
 - **[SteamGridDB](https://www.steamgriddb.com/)**: optional cover/background search in the editor (with your own API key, stored only on your PS5).
+- **[motionbgs.com](https://motionbgs.com/)**: the editor can search its live wallpapers (made by fans) for animated game backgrounds. The search and the download go from your PS5 to the site when you ask; ZhiThemes ships and keeps none of its videos.
 
 ## Thanks
 

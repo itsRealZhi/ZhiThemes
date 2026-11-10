@@ -369,6 +369,11 @@
     wallpaper: '',              /* your wallpaper, uploaded from the editor; an .mp4 plays as a video behind the Home ('') */
     wallpaperVideoSound: false, /* .mp4 wallpaper: play its sound (false) */
     wallpaperVideoVolume: 0.5,  /* .mp4 wallpaper: volume of its sound, 0-1 (0.5) */
+    /* --- sounds --- */
+    homeMusicOn: false,         /* Home music: your own music on the Home while the focused tile has no music of its own; the .mp4 wallpaper stays silent (false) */
+    homeMusic: '',              /* the music file, uploaded from the editor (.mp3 .m4a .aac .wav .at9 .mp4) ('') */
+    homeMusicGames: false,      /* the Home music also instead of the games' own music (false) */
+    homeMusicVolume: 0.5,       /* video player only: volume 0-1 (0.5) */
     /* --- shadows --- */
     textShadow: 0,              /* shadow of all theme texts (dark shifted copy), px; each text can have its own below (0) */
     textShadowColor: '#000000', /* colour of the text shadow ('#000000') */
@@ -1888,18 +1893,52 @@
     var tries = React.useState(0), attempt = tries[0], setAttempt = tries[1];
     var restarts = React.useState(0), restart = restarts[0], setRestart = restarts[1];
     var kinds = ['fullHD', '', 'UHD'];
+    var me = React.useState(function () { return {}; })[0];
     React.useEffect(function () {
-      /* a short wait: moving fast along the row starts no player; with
-         every tile moving (tileAnimAll) at most tileAnimAllMax players, the
-         focused one always */
-      var counted = false;
-      var t = setTimeout(function () {
+      /* one player per video: the focused game is also in the rows of
+         the other tabs (Favourites, Recently played...), hidden; a second
+         player of the same file took the decoder and the visible tile
+         stood still. The first one (the shown row) keeps it; another
+         waits until it is gone. */
+      var key = (props.dir || 't') + '/' + props.file;
+      T.animOwner = T.animOwner || {};
+      T.animWait = T.animWait || {};
+      var counted = false, owned = false, t = null, alive = true;
+      var start = function () {
+        /* gone already (the row unmounted it with the owner): it must
+           not take the video, or no player of this file ever starts again */
+        if (!alive) return;
+        if (T.animOwner[key] && T.animOwner[key] !== me) {
+          (T.animWait[key] = T.animWait[key] || []).push(start);
+          if (animLogs < 16) { animLogs++; log('animated tile: ' + props.file + ' already playing in another row, this one waits'); }
+          return;
+        }
+        T.animOwner[key] = me; owned = true;
         var max = Math.max(1, +THEME.tileAnimAllMax || 6);
         if (!props.focused && T.animLive >= max) return;
         counted = true; T.animLive++;
         setMounted(true);
-      }, props.wait || (props.focused ? 120 : 350));
-      return function () { clearTimeout(t); if (counted) T.animLive--; };
+      };
+      /* no wait, so it starts at once; only while the row moves fast
+         (focus changes less than 220 ms apart) a short one, so passing
+         tiles start no player; not focused (tileAnimAll) 350 ms */
+      var ms = props.wait != null ? props.wait : props.focused ? (T.focusGap < 220 ? 160 : 0) : 350;
+      t = setTimeout(start, ms);
+      return function () {
+        alive = false;
+        clearTimeout(t);
+        if (counted) T.animLive--;
+        var w = T.animWait[key];
+        if (w) { var i = w.indexOf(start); if (i >= 0) w.splice(i, 1); }
+        if (owned && T.animOwner[key] === me) {
+          delete T.animOwner[key];
+          /* the next one still there (the others went in the same pass) */
+          setTimeout(function () {
+            var n2 = w && w.shift();
+            while (n2) { n2(); if (T.animOwner[key]) break; n2 = w.shift(); }
+          }, 0);
+        }
+      };
     }, [props.file]);
     if (!Video || !mounted || attempt >= kinds.length) return null;
     var uri = 'http://127.0.0.1:4445/' + (props.dir || 't') + '/' + props.file, kind = kinds[attempt];
@@ -2117,6 +2156,13 @@
     if (typeof id !== 'string' || !id || id === T.shapeFocus) return;
     var old = T.shapeFocus || T.strandSel;
     T.shapeFocus = id;
+    /* how fast the row moves (the animated tile / background start at once unless it moves fast) */
+    var now = Date.now();
+    T.focusGap = T.lastFocusMove ? now - T.lastFocusMove : 1e9;
+    T.lastFocusMove = now;
+    /* the animated background follows the row's focus at once (before the Home's background request) */
+    if (APP === 'home' && bgVideoFiles && T.bgVideoCount > 0)
+      setTimeout(function () { tileListeners.forEach(function (f) { try { f(); } catch (e) {} }); }, 0);
     [old, id].forEach(function (k) {
       (shapeSubs[k] || []).forEach(function (bump) {
         try { bump(function (n) { return n + 1; }); } catch (e) {}
@@ -8453,7 +8499,8 @@
     if (!Video || !uri || released || attempt >= kinds.length) return null;
     var kind = kinds[attempt];
     if (T.videoUriLogged !== uri + kind) { T.videoUriLogged = uri + kind; log('video: wallpaper ' + uri + ' (' + (kind || 'no resource type') + ')'); }
-    var sound = own ? !!props.sound : !!THEME.wallpaperVideoSound;
+    /* the Home music (Sounds tab) wins over the wallpaper's own sound */
+    var sound = own ? !!props.sound : !!THEME.wallpaperVideoSound && !homeMusicFile();
     var vol = THEME.wallpaperVideoVolume == null ? 0.5 : Math.max(0, Math.min(1, +THEME.wallpaperVideoVolume || 0));
     var source = { source: uri, autoLoad: true };
     if (kind) source.coreResourceType = kind;
@@ -8967,6 +9014,8 @@
         : React.createElement(VideoWallpaper, { key: 'theme-video' }));
     else if (bgVideosUsed() && typeof React.useState === 'function')
       out.push(React.createElement(BgVideo, { key: 'theme-bg-video' }));
+    if (homeMusicFile() && homeMusicVideo() && typeof React.useState === 'function')
+      out.push(React.createElement(HomeMusic, { key: 'theme-home-music' }));
     if (THEME.bgDim > 0)
       out.push(React.createElement(rn.View, {
         key: 'theme-bg', pointerEvents: 'none',
@@ -10664,9 +10713,9 @@
       tileListeners.push(f);
       return function () { var i = tileListeners.indexOf(f); if (i >= 0) tileListeners.splice(i, 1); };
     }, []);
-    var file = bgVideoFor(T.focusedId || T.strandSel);
+    var file = bgVideoFor(T.shapeFocus || T.focusedId || T.strandSel);
     if (!file) return null;
-    return React.createElement(AnimTileVideo, { key: file, file: file, dir: 'b', w: 1920, h: 1080, wait: 500, focused: true });
+    return React.createElement(AnimTileVideo, { key: file, file: file, dir: 'b', w: 1920, h: 1080, focused: true });
   }
 
   /* Bloodborne (no pic0) with its own background showed it and lost it
@@ -10741,9 +10790,130 @@
     if (cleanLogs++ < 4) log('clean background (try ' + mode + '): ' + JSON.stringify(copy).slice(0, 200));
     return copy;
   }
+  /* ---- Home music (Sounds tab) ----
+     The Home asks for the focused tile's music with
+     SceneControl.setSystemBgm({src: <its snd0>, type: 'AppSnd0'})
+     (useBackgroundImageAndMusic) and passes null for a tile without one
+     (system tiles, games without music): that null becomes the theme's
+     music. homeMusicPlayer 'system' hands the file to the same PS5 music
+     player; 'video' plays it with the video player (HomeMusic) instead. */
+  /* not working on the PS5 yet (the Sounds tab is greyed out in the
+     editor): off whatever a theme says, no hook, the Home as stock */
+  var HOME_MUSIC_READY = false;
+  function homeMusicFile() {
+    if (!HOME_MUSIC_READY) return '';
+    var n = THEME.homeMusic;
+    if (APP !== 'home' || !THEME.homeMusicOn || typeof n !== 'string' || !n) return '';
+    return n;
+  }
+  /* the PS5's music player of the games stayed silent with .mp3 and .mp4: always the video player */
+  function homeMusicVideo() { return true; }
+  /* a game's own music is its snd0 under /user/ (appmeta, app); any
+     other request (the system's own sound for a tile without one) is
+     replaced by the theme's music */
+  function gameMusic(bgm) {
+    if (!bgm || typeof bgm !== 'object') return false;
+    if (THEME.homeMusicGames) return false;
+    return /^(file:\/\/)?\/user\//.test(String(bgm.src || bgm.uri || ''));
+  }
+  var musicListeners = [], musicLogs = 0;
+  function setMusicWanted(on) {
+    if (T.musicWanted === on) return;
+    T.musicWanted = on;
+    if (musicLogs++ < 12) log('home music: ' + (on ? 'tile without music, theme music on' : 'tile with its own music'));
+    setTimeout(function () { musicListeners.forEach(function (f) { try { f(); } catch (e) {} }); }, 0);
+  }
+  function hookMusic(sc) {
+    if (!HOME_MUSIC_READY || APP !== 'home' || !sc || typeof sc.setSystemBgm !== 'function' || sc.setSystemBgm.__theme) return;
+    var original = sc.setSystemBgm;
+    var replaced = function (bgm) {
+      var file = homeMusicFile();
+      /* after a game (the Home went to the background) the PS5 player
+         may have stopped: the next request is sent again */
+      var AS = T.rn && T.rn.AppState;
+      if (AS && !T.musicAS && typeof AS.addEventListener === 'function') {
+        T.musicAS = true;
+        try { AS.addEventListener('change', function () { T.musicOurs = false; }); } catch (e) {}
+      }
+      if (file && (T.askLogs = (T.askLogs || 0) + 1) <= 30) { try { log('home music: the Home asks ' + JSON.stringify(bgm).slice(0, 160)); } catch (e) {} }
+      if (!file || gameMusic(bgm)) {
+        T.musicOurs = false;
+        if (file) setMusicWanted(false);
+        return original.apply(this, arguments);
+      }
+      setMusicWanted(true);
+      /* the theme's music plays: the system's own one is stopped */
+      if (homeMusicVideo()) { T.musicOurs = false; return original.call(this, null); }
+      /* already playing it: not started again on every tile */
+      if (T.musicOurs) return undefined;
+      T.musicOurs = true;
+      var ask = { src: ztPath('wallpapers', file), type: 'AppSnd0' };
+      if (musicLogs++ < 12) log('home music: system player ' + JSON.stringify(ask));
+      try { return original.call(this, ask); } catch (e) {
+        log('home music: ' + e);
+        T.musicOurs = false;
+        return original.apply(this, arguments);
+      }
+    };
+    replaced.__theme = true;
+    try { sc.setSystemBgm = replaced; } catch (e) {}
+    if (sc.setSystemBgm === replaced) done('home music hook'); else log('home music: setSystemBgm not replaceable');
+  }
+  /* homeMusicPlayer 'video': the file played by a small native video
+     player in the back layer (not hidden: a hidden player stalls), paused
+     while a tile has its own music or the Home is in the background */
+  function HomeMusic() {
+    var React = T.React, rn = T.rn, Video = videoComponent();
+    var tick = React.useState(0)[1];
+    var AS = rn.AppState;
+    var away = function (s) { return /background/i.test(String(s || '')); };
+    var st = React.useState(!away(AS && AS.currentState)), active = st[0], setActive = st[1];
+    var tries = React.useState(0), attempt = tries[0], setAttempt = tries[1];
+    var restarts = React.useState(0), restart = restarts[0], setRestart = restarts[1];
+    var kinds = ['fullHD', '', 'UHD'];
+    React.useEffect(function () {
+      var f = function () { tick(function (n) { return n + 1; }); };
+      musicListeners.push(f);
+      var sub = null;
+      var onChange = function (s) { setActive(!away(s)); if (!away(s)) setAttempt(0); };
+      if (AS && typeof AS.addEventListener === 'function') try { sub = AS.addEventListener('change', onChange); } catch (e) {}
+      return function () {
+        var i = musicListeners.indexOf(f); if (i >= 0) musicListeners.splice(i, 1);
+        try { if (sub && sub.remove) sub.remove(); else if (AS) AS.removeEventListener('change', onChange); } catch (e) {}
+      };
+    }, []);
+    var file = homeMusicFile();
+    if (!Video || !file || attempt >= kinds.length) return null;
+    var uri = 'http://127.0.0.1:4445/v/' + file.split('/').pop(), kind = kinds[attempt];
+    var source = { source: uri, autoLoad: true };
+    if (kind) source.coreResourceType = kind;
+    var vol = THEME.homeMusicVolume == null ? 0.5 : Math.max(0, Math.min(1, +THEME.homeMusicVolume || 0));
+    var play = active && T.musicWanted === true;
+    if (T.musicLogged !== uri + kind) { T.musicLogged = uri + kind; log('home music: video player ' + uri + ' (' + (kind || 'no resource type') + ')'); }
+    return React.createElement(rn.View, {
+      pointerEvents: 'none',
+      style: { position: 'absolute', left: 0, top: 0, width: 8, height: 8, opacity: 0.01 }
+    }, React.createElement(Video, {
+      key: 'm' + attempt + '-' + restart,
+      pointerEvents: 'none',
+      source: source,
+      repeat: true, paused: !play, muted: false, volume: vol,
+      suppressBgm: false, resizeMode: 'cover',
+      onStartPlaying: function (e) { if (!T.done['home music playing']) { videoEvent('home music playing', e); done('home music playing'); } },
+      onError: function (e) {
+        var ev = e && e.nativeEvent ? e.nativeEvent : e;
+        try { log('home music: error ' + JSON.stringify(ev).slice(0, 200)); } catch (x) {}
+        if (attempt + 1 >= kinds.length) log('home music: ' + file + ' not played by the video player (try .m4a / .mp4 AAC)');
+        setAttempt(attempt + 1);
+      },
+      onEnd: function () { if (restart < 500) setTimeout(function () { setRestart(restart + 1); }, 50); },
+      style: { position: 'absolute', left: 0, top: 0, width: 8, height: 8 }
+    }));
+  }
   function hookBackground(exp) {
     var sc;
     try { sc = exp.SceneControl; } catch (e) { return; }
+    hookMusic(sc);
     if (!sc || typeof sc.setBackground !== 'function' || sc.setBackground.__theme) return;
     var original = sc.setBackground;
     var replaced = function (img) {

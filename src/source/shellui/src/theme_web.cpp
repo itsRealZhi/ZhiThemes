@@ -249,13 +249,16 @@ struct SgdbImgJob {
   int fd;
   std::string url;
   const char *mime;
+  const char *who; /* the site, in the error text */
+  size_t max;
 };
-void sgdb_img_send(int fd, const std::string &url, const char *mime) {
+void sgdb_img_send(int fd, const std::string &url, const char *mime, const char *who = "SteamGridDB",
+                   size_t max = 400u << 20) {
   bool head_sent = false, client_ok = true;
   long http = 0, bad = 0;
   std::string err;
   const bool ok = zt_sgdb_stream(
-      url, 400u << 20,
+      url, max,
       [&](const char *p, size_t n, long code, long long total) -> bool {
         if (g_web_quit)
           return false;
@@ -290,14 +293,14 @@ void sgdb_img_send(int fd, const std::string &url, const char *mime) {
       http, err);
   if (!head_sent) {
     const std::string why = bad ? "HTTP " + std::to_string(bad) : err.empty() ? std::to_string(http) : err;
-    reply(fd, 502, "Bad Gateway", "text/plain", "SteamGridDB: " + why);
+    reply(fd, 502, "Bad Gateway", "text/plain", std::string(who) + ": " + why);
   } else if (!ok && client_ok) {
-    zt_log("sgdb: picture cut off: %s", err.c_str());
+    zt_log("sgdb: %s file cut off: %s", who, err.c_str());
   }
 }
 void *sgdb_img_client(void *arg) {
   SgdbImgJob *j = (SgdbImgJob *)arg;
-  sgdb_img_send(j->fd, j->url, j->mime);
+  sgdb_img_send(j->fd, j->url, j->mime, j->who, j->max);
   close(j->fd);
   delete j;
   pthread_mutex_lock(&g_asset_lock);
@@ -577,6 +580,110 @@ void handle(int fd) {
    *        -> customtile/<titleId>_<fmt>_<n>.<png|jpg>, n = the highest + 1
    * The API key comes in the X-Key header (the editor's steamGridKey field).
    */
+  /*
+   * motionbgs.com (Pictures tab, Background 16:9 with "Animated only"):
+   * the user searches the site from the editor through the PS5 (the site
+   * sends no CORS headers). Nothing of it is kept or shipped by ZhiThemes:
+   * the editor shows the results and the video the user picks goes to
+   * custombg like any upload.
+   *   GET /mbg/search?q=<name>              the results page (HTML)
+   *   GET /mbg/page?p=tag:<name>/<n>/       another page of a tag
+   *   GET /mbg/img?u=/i/c/<w>x<h>/media/<id>/<file>.jpg   a thumbnail
+   *   GET /mbg/img?u=/media/<id>/<name>.960x540.mp4         its small preview video
+   *   GET /mbg/video?id=<n>                 its HD MP4 (1920x1080)
+   * search / page answer "<path of the page>\n<html>" (a search can be
+   * sent on to the tag's page, whose next pages are /tag:<name>/<n>/).
+   */
+  if (method == "GET" && path.rfind("/mbg/", 0) == 0) {
+    const std::string site = "https://motionbgs.com/";
+    if (path == "/mbg/search" || path == "/mbg/page") {
+      std::string ask;
+      if (path == "/mbg/search") {
+        const std::string q = query_value(query, "q");
+        if (q.empty() || q.size() > 120)
+          return reply(fd, 400, "Bad Request", "text/plain", "bad name");
+        ask = "search?q=" + url_encode(q);
+      } else {
+        ask = query_value(query, "p");
+        bool ok = ask.size() > 4 && ask.size() < 160 && ask.rfind("tag:", 0) == 0 && ask.find("..") == std::string::npos;
+        for (char c : ask)
+          if (!(isalnum((unsigned char)c) || c == ':' || c == '/' || c == '-' || c == '_' || c == '.'))
+            ok = false;
+        if (!ok)
+          return reply(fd, 400, "Bad Request", "text/plain", "bad page");
+      }
+      std::string html, final_url, err;
+      long http = 0;
+      if (!zt_web_page(site + ask, html, final_url, http, err, 4u << 20))
+        return reply(fd, 502, "Bad Gateway", "text/plain", "motionbgs: " + err);
+      if (http != 200)
+        return reply(fd, 502, "Bad Gateway", "text/plain", "motionbgs: HTTP " + std::to_string(http));
+      const std::string at = final_url.rfind(site, 0) == 0 ? final_url.substr(site.size()) : ask;
+      return reply(fd, 200, "OK", "text/plain; charset=utf-8", at + "\n" + html);
+    }
+    if (path == "/mbg/img" || path == "/mbg/video") {
+      std::string url;
+      const char *mime = "video/mp4";
+      size_t max = 200u << 20;
+      if (path == "/mbg/img") {
+        const std::string u = query_value(query, "u");
+        bool ok = u.rfind("/i/c/", 0) == 0 && u.size() < 220 && u.find("..") == std::string::npos;
+        for (char c : u)
+          if (!(isalnum((unsigned char)c) || c == '/' || c == '-' || c == '_' || c == '.'))
+            ok = false;
+        /* thumbnails /i/c/...jpg|webp, or the site's small preview video
+           /media/<id>/<name>.960x540.mp4 (the moving thumbnails) */
+        const bool media = u.rfind("/media/", 0) == 0;
+        if (media && u.size() < 220 && u.find("..") == std::string::npos) {
+          ok = true;
+          for (char c : u)
+            if (!(isalnum((unsigned char)c) || c == '/' || c == '-' || c == '_' || c == '.'))
+              ok = false;
+        }
+        const bool webp = !media && u.size() > 5 && u.compare(u.size() - 5, 5, ".webp") == 0;
+        const bool jpg = !media && u.size() > 4 && u.compare(u.size() - 4, 4, ".jpg") == 0;
+        const std::string tail = ".960x540.mp4";
+        const bool preview = media && u.size() > tail.size() && u.compare(u.size() - tail.size(), tail.size(), tail) == 0;
+        if (!ok || !(webp || jpg || preview))
+          return reply(fd, 400, "Bad Request", "text/plain", "bad picture");
+        url = site + u.substr(1);
+        mime = webp ? "image/webp" : jpg ? "image/jpeg" : "video/mp4";
+        max = preview ? 40u << 20 : 4u << 20;
+      } else {
+        const std::string id = query_value(query, "id");
+        bool num = !id.empty() && id.size() < 10;
+        for (char c : id)
+          if (c < '0' || c > '9')
+            num = false;
+        if (!num)
+          return reply(fd, 400, "Bad Request", "text/plain", "bad video");
+        url = site + "dl/hd/" + id + "/";
+        zt_log("mbg: video %s asked", id.c_str());
+      }
+      /* handed on as it comes, from a thread of its own (as /sgdb/img) */
+      auto *job = new SgdbImgJob{fd, url, mime, "motionbgs", max};
+      pthread_t t;
+      pthread_mutex_lock(&g_asset_lock);
+      const bool room = g_asset_clients < 4;
+      if (room)
+        ++g_asset_clients;
+      pthread_mutex_unlock(&g_asset_lock);
+      if (room && pthread_create(&t, nullptr, sgdb_img_client, job) == 0) {
+        pthread_detach(t);
+        g_fd_taken = true;
+        return;
+      }
+      if (room) {
+        pthread_mutex_lock(&g_asset_lock);
+        --g_asset_clients;
+        pthread_mutex_unlock(&g_asset_lock);
+      }
+      sgdb_img_send(fd, job->url, job->mime, job->who, job->max);
+      delete job;
+      return;
+    }
+    return reply(fd, 404, "Not Found", "text/plain", "not found");
+  }
   /* the key lives on the PS5 (steamgrid.key): GET /sgdb/key says if
      there is one (never the key), POST /sgdb/key saves the body ("" removes) */
   if (path == "/sgdb/key") {
@@ -659,7 +766,7 @@ void handle(int fd) {
         /* handed on as it comes from the CDN (no second download, the
            editor sees the progress), from a thread of its own so the
            editor's other requests do not wait behind a big picture */
-        auto *job = new SgdbImgJob{fd, url, mime};
+        auto *job = new SgdbImgJob{fd, url, mime, "SteamGridDB", 400u << 20};
         pthread_t t;
         pthread_mutex_lock(&g_asset_lock);
         const bool room = g_asset_clients < 4;
@@ -1196,6 +1303,13 @@ void video_handle(int fd) {
     return reply(fd, 404, "Not Found", "text/plain", "no such video");
   }
   const long long size = (long long)st.st_size;
+  /* the theme's Home music (wallpapers/ of the theme) is served here too */
+  const size_t ndot = name.rfind('.');
+  std::string next = ndot == std::string::npos ? "" : name.substr(ndot + 1);
+  for (char &c : next)
+    c = (char)tolower((unsigned char)c);
+  const char *mime = next == "mp3" ? "audio/mpeg" : next == "m4a" ? "audio/mp4" : next == "aac" ? "audio/aac"
+                   : next == "wav" ? "audio/wav" : next == "ogg" ? "audio/ogg" : "video/mp4";
   long long first = 0, last = size - 1;
   bool ranged = false;
   /* Range: bytes=a-b | bytes=a- | bytes=-n (one range only) */
@@ -1240,13 +1354,13 @@ void video_handle(int fd) {
   const long long length = last - first + 1;
   const int hn = ranged
       ? snprintf(head, sizeof(head),
-                 "HTTP/1.1 206 Partial Content\r\nContent-Type: video/mp4\r\n"
+                 "HTTP/1.1 206 Partial Content\r\nContent-Type: %s\r\n"
                  "Accept-Ranges: bytes\r\nContent-Range: bytes %lld-%lld/%lld\r\n"
                  "Content-Length: %lld\r\nConnection: close\r\n\r\n",
-                 first, last, size, length)
+                 mime, first, last, size, length)
       : snprintf(head, sizeof(head),
-                 "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nAccept-Ranges: bytes\r\n"
-                 "Content-Length: %lld\r\nConnection: close\r\n\r\n", size);
+                 "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nAccept-Ranges: bytes\r\n"
+                 "Content-Length: %lld\r\nConnection: close\r\n\r\n", mime, size);
   video_log(head_only ? "head" : "send", name, first, last, size);
   bool ok = send_all(fd, head, (size_t)hn);
   std::vector<char> chunk(256u << 10);
