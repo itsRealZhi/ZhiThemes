@@ -720,6 +720,33 @@ void zt_storage_setup() {
     if (theme_set_field("steamGridKey", ""))
       zt_log("storage: SteamGridDB key moved from the theme to steamgrid.key");
   }
+
+  /* favourites leave the themes: one list for the console (the active
+     theme's first, then the other themes') */
+  if (!exists(ZT_FAVORITES_FILE)) {
+    std::vector<std::string> files{zt_theme_file()};
+    for (const std::string &n : list_dir(ZT_THEMES))
+      if (ends(n, ".ztheme") && std::string(ZT_THEMES "/") + n != files[0])
+        files.push_back(std::string(ZT_THEMES "/") + n);
+    std::string all = ",";
+    for (const std::string &f : files) {
+      const std::string v = string_field(read_all(f.c_str()), "favorites");
+      size_t at = 0;
+      while (at <= v.size()) {
+        size_t c = v.find(',', at);
+        if (c == std::string::npos)
+          c = v.size();
+        std::string id = v.substr(at, c - at);
+        id.erase(std::remove(id.begin(), id.end(), ' '), id.end());
+        if (!id.empty() && all.find("," + id + ",") == std::string::npos)
+          all += id + ",";
+        at = c + 1;
+      }
+    }
+    const std::string list = all.size() > 1 ? all.substr(1, all.size() - 2) : "";
+    if (zt_favorites_set(list))
+      zt_log("storage: favourites now console wide (%s)", list.empty() ? "none" : list.c_str());
+  }
 }
 
 void zt_particles_install() {
@@ -790,6 +817,25 @@ std::string zt_sgdb_key() {
   while (!k.empty() && (k.back() == '\n' || k.back() == '\r' || k.back() == ' '))
     k.pop_back();
   return k.size() < 200 ? k : "";
+}
+
+std::string zt_favorites() {
+  std::string out;
+  for (char c : read_all(ZT_FAVORITES_FILE))
+    if (isalnum((unsigned char)c) || c == ',')
+      out += (char)toupper((unsigned char)c);
+  return out.size() < 60000 ? out : "";
+}
+
+bool zt_favorites_set(const std::string &list) {
+  std::string clean;
+  for (char c : list)
+    if (isalnum((unsigned char)c) || c == ',')
+      clean += (char)toupper((unsigned char)c);
+  if (clean.size() >= 60000)
+    return false;
+  const std::string part = std::string(ZT_FAVORITES_FILE) + ".part";
+  return write_all(part.c_str(), clean) && rename(part.c_str(), ZT_FAVORITES_FILE) == 0;
 }
 
 bool zt_sgdb_key_set(const std::string &key) {

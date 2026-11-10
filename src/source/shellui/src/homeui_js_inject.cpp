@@ -2492,6 +2492,8 @@ void eval_theme(MonoObject *self, const char *app, unsigned hub_id = 0) {
                              "globalThis.__ztDiagPlain = " + std::string(diag_plain ? "true" : "false") + ";\n" +
                              "globalThis.__ztFonts = " + font_table() + ";\n" +
                              "globalThis.__ztUser = " + ascii_js(user_name_js()) + ";\n" +
+                             /* favourites are console wide (favorites.txt) */
+                             "globalThis.__ztFavorites = \"" + zt_favorites() + "\";\n" +
                              /* Logs tab: debug mode (logs/debug.on) */
                              "globalThis.__ztDebug = {on: " + (zt_debug_on() ? "true" : "false") +
                              ", sys: " + (zt_debug_sys() ? "true" : "false") + "};\n" +
@@ -3403,6 +3405,17 @@ void ConsoleLog_Hook(MonoString *msg, int level, void *error, void *userarg) {
          favorites: Add to / Remove from favourites */
       if ((key != "folders" && key != "customTileChoice" && key != "favorites") || !clean) {
         zt_log("js: THEME-SET refused (%s, %zu bytes)", key.c_str(), value.size());
+      } else if (key == "favorites") {
+        /* console wide: favorites.txt, not the theme */
+        if (zt_favorites_set(value)) {
+          zt_log("js: favourites = %.300s", value.empty() ? "(none)" : value.c_str());
+          if (!quiet) {
+            shellui_request_hub_reload();
+            shellui_request_home_reload();
+          }
+        } else {
+          zt_log("js: favourites: cannot write " ZT_FAVORITES_FILE);
+        }
       } else if (theme_set_field(key, value)) {
         zt_log("js: THEME-SET%s %s = %.300s%s", quiet ? "Q" : "", key.c_str(), value.c_str(),
                        quiet ? "" : "; reload");

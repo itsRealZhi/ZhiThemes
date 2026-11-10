@@ -584,6 +584,9 @@
   var TOKENS = {
     /* 'focus.stroke.enabled': '#2fd0e6', */
   };
+  /* favourites are console wide (ZhiThemes keeps them in favorites.txt, not
+     in the theme): the same list whatever theme is in use */
+  if (typeof globalThis.__ztFavorites === 'string') THEME.favorites = globalThis.__ztFavorites;
   /* "home", "hub" or "library": ZhiThemes sets it before running this file */
   var APP = globalThis.__themeApp || '?';
   /* debug mode (editor's Logs tab, kept by ZhiThemes in logs/debug.on, not in
@@ -1832,6 +1835,10 @@
       pointerEvents: 'none',
       source: source,
       repeat: true, paused: false, muted: true, volume: 0, resizeMode: 'cover',
+      /* a native video view stops the game's own music (BGM) unless told
+         not to (ReactVideoView.bgmSuppressionDisabled is false by default):
+         a muted tile must leave the game's sound playing */
+      suppressBgm: false,
       onStartPlaying: function (e) {
         setShown(true);
         var what = props.dir === 'b' ? 'animated background' : 'animated tile';
@@ -2792,10 +2799,20 @@
      (T.tabRefs), and the first tab on screen is the one that leads to the
      icon on the left. */
   T.tabRefs = {};
-  var tabRefFns = {}, tabRightKeys = {};
+  var tabRefFns = {}, tabRightKeys = {}, TAB_END_SFX = ['up', 'down'], TAB_END_SFX_RIGHT = ['up', 'down', 'right'];
   function tabsReordered() {
     var on = spaceOrder(), home = Array.isArray(T.spaceIds) ? T.spaceIds : on;
     return on.join(',') !== home.join(',');
+  }
+  /* the focus moved by our code makes no native sound (and the "cannot
+     move" one is off on the tabs): the Home's own move sound, as its row does
+     (psfx_focus_move, panned to the side) */
+  function tabMoveSound(step) {
+    try {
+      var sound = T.rn && T.rn.SystemSoundPS;
+      if (sound && typeof sound.playByID === 'function')
+        sound.playByID('psfx_focus_move', undefined, { pan: step > 0 ? 100 : -100 });
+    } catch (x) {}
   }
   function tabStep(name, step, e) {
     var ids = spaceOrder(), at = ids.indexOf(name.slice('space-switcher-'.length));
@@ -2804,6 +2821,7 @@
     if (!ref || typeof ref.focus !== 'function') return null;
     take(e);
     if (pressed(e)) {
+      tabMoveSound(step);
       try { ref.focus(); } catch (x) { log('tabs: focus ' + next + ': ' + x); }
       if ((T.tabStepLogs = (T.tabStepLogs || 0) + 1) <= 6) log('tabs: ' + (step > 0 ? 'right' : 'left') + ' ' + name.slice(15) + ' -> ' + next);
     }
@@ -2827,6 +2845,13 @@
         var r = tabStep(name, 1, e);
         return r === null ? true : r;
       };
+      /* left / right are moved here (ref.focus): the native side saw the
+         cursor not moving and played its "cannot move" sound on every press.
+         Like the Home's own row tiles: that sound only for up / down */
+      props.cursorEndSFXEnabledDirection = TAB_END_SFX;
+    } else if (THEME.iconsNav && sid === spaceOrder()[0] && leftIconOfTabs()) {
+      /* left on the first tab goes to the icon by its ref: the same */
+      props.cursorEndSFXEnabledDirection = TAB_END_SFX_RIGHT;
     }
     props.onLeftKeyDown = tabKeys[name] = tabKeys[name] || function (e) {
       keyLog('tab ' + name + ' left', e);
@@ -2839,7 +2864,7 @@
       var left = THEME.iconsNav && name === first ? leftIconOfTabs() : null;
       if (!left || !T.iconRefs || !T.iconRefs[left]) return true;
       take(e);
-      if (pressed(e)) focusIcon(left);
+      if (pressed(e)) { tabMoveSound(-1); focusIcon(left); }
       return false;
     };
   }
@@ -8069,8 +8094,9 @@
         style: { position: 'absolute', left: 0, top: 0, width: 1920, height: 1080,
                  opacity: THEME.bgOverlayOpacity == null ? 1 : THEME.bgOverlayOpacity }
       }));
-    /* background boxes: top bar, footer and free boxes (field prefix) */
-    ['topBarBg', 'footerBg', 'box1', 'box2', 'box3'].forEach(function (k) {
+    /* background boxes (field prefix), bottom first: box 3, box 2, box 1,
+       then the footer and the top bar backgrounds always over the free boxes */
+    ['box3', 'box2', 'box1', 'footerBg', 'topBarBg'].forEach(function (k) {
       if (!THEME[k + 'On'] || !THEME[k] || (k === 'footerBg' && !THEME.footer)) return;
       out.push(React.createElement(rn.View, {
         key: 'theme-' + k, pointerEvents: 'none',

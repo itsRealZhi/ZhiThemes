@@ -5355,6 +5355,9 @@
         'px;background:linear-gradient(to bottom,transparent,' + html(c.bgColor || '#000') + ');opacity:' + num(c.bgGradient) + '"></div>');
     V.boxes = all;
     V.drawn = [];
+    /* as on the PS5: box 3 at the bottom, box 1 over box 2, the footer and
+       the top bar backgrounds over the free boxes */
+    var BEHIND_Z = { box3: 0, box2: 1, box1: 2, footerBgEl: 3, topBarBgEl: 4 };
     list.forEach(function (e) {
       if ((e.toggle && !c[e.toggle]) || (e.vanishes && hidden(e, c)) || (e.free && c[e.free]) ||
           (e.id === 'footerBgEl' && !c.footer)) return;
@@ -5362,7 +5365,7 @@
       var r = all[e.id], b = r.b, d = document.createElement('div');
       total++; if (r.measured) measured++;
       d.className = 'el' + (b[1] < 50 ? ' low' : '') + (e.group ? ' grp' : '') + (V.sel === e.id ? ' sel' : '') + (hidden(e, c) ? ' hiddenEl' : '');
-      d.style.cssText = 'left:' + b[0] + 'px;top:' + b[1] + 'px;width:' + b[2] + 'px;height:' + b[3] + 'px;z-index:' + (e.behind ? 0 : e.group ? 1 : 2);
+      d.style.cssText = 'left:' + b[0] + 'px;top:' + b[1] + 'px;width:' + b[2] + 'px;height:' + b[3] + 'px;z-index:' + (e.behind ? BEHIND_Z[e.id] || 0 : e.group ? 10 : 11);
       d.innerHTML = content(e, c, b, all) + '<div class="tag">' + html(e.name) + (r.measured ? '' : ' ≈') +
                     (hidden(e, c) ? ' (hidden)' : '') + '</div>' + (e.grow || e.growW ? '<div class="grip"></div>' : '');
       d.onpointerdown = function (ev) { startDrag(ev, e, ev.target.className === 'grip'); };

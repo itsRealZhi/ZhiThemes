@@ -27,6 +27,7 @@ later version. See LICENSE and NOTICE.  */
 #define ZT_LEGACY ZT_ASSETS "/backgrounds"         /* in older versions; read when a file is still there */
 #define ZT_SGDB_KEY_FILE ZT_DIR "/steamgrid.key"   /* the SteamGridDB API key, never in a theme */
 #define ZT_ACTIVE_FILE ZT_DIR "/active_theme.txt"  /* the name of the theme in use */
+#define ZT_FAVORITES_FILE ZT_DIR "/favorites.txt"  /* favourite games, console wide (not in a theme) */
 #define ZT_THEME_BACKUPS ZT_THEMES "/.backup"      /* a copy of each theme at every start */
 
 /* moves the files of the layout in older versions (everything in
@@ -84,6 +85,12 @@ std::string zt_legacy_js();
    names in use; the other files of that cache folder older than 10 min
    are deleted (they are made again when needed). */
 void zt_cache_keep(const std::string &text);
+
+/* The favourite games, console wide: title ids separated by commas
+   (favorites.txt). Older themes kept them in the theme's "favorites" field:
+   zt_storage_setup gathers those once. */
+std::string zt_favorites();
+bool zt_favorites_set(const std::string &list);
 
 /* The SteamGridDB key on the PS5 ("" = none); set "" removes it. */
 std::string zt_sgdb_key();
