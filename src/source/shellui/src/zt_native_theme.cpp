@@ -17,6 +17,8 @@ icon_color/chosen_color.cpp, color.cpp). */
 #include "zt_log.hpp"
 #include "zt_paths.hpp"
 #include "zt_storage.hpp"
+#include "zt_avatar_codec.h"
+#include "zt_avatar_image.hpp"
 
 #if SHELLUI_HOMEUI_JS_INJECT == 1
 
@@ -26,8 +28,10 @@ icon_color/chosen_color.cpp, color.cpp). */
 #include <algorithm>
 #include <atomic>
 #include <mutex>
+#include <pthread.h>
 #include <ctype.h>
 #include <fcntl.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -148,22 +152,36 @@ int get_bool(MonoObject *obj, const char *name) {
  * "profilecache:image/face/...userId=<id>..."; for the signed-in user it is
  * swapped for the theme's file. An animated GIF / WebP plays when the
  * options say IsAnimatedImage + AnimationDecodeMode 1 and the box has Loop
- * and Autoplay. libScePsm refuses animated pictures over 300x300 or 150
- * frames (the editor makes them fit); a box that has not loaded after
- * kVerifyFrames gets the still picture, then the system's own. */
+ * and Autoplay.
+ *
+ * libScePsm decodes an animated picture whole: past 300x300 or 150 frames
+ * it refuses it, or the ShellUI froze and crashed. So the file's header is
+ * read first; a GIF over 256 px, over 140 KB, not square or with a crop
+ * from the editor's avatar maker (avatarCrop "x,y,side") is fitted in its
+ * own thread (zt_avatar_codec.c) to Assets/avatars/cache/<name>_fit.gif and
+ * that copy is shown; meanwhile, and when it cannot be fitted, the picture
+ * is shown still. A box that has not loaded after kVerifyFrames gets the
+ * still picture, then the system's own. The boxes are kept, so a new
+ * avatar reloads them; the profile cache is refreshed a few times after
+ * the start, so the avatar is back after a reboot or a sign-in. */
 using BoxLoadFn = void (*)(MonoObject *box, MonoString *uri, MonoObject *action,
                            MonoObject *option, bool set_image);
 BoxLoadFn g_box_orig = nullptr;
 MonoClass *g_options_class = nullptr;
+MonoClass *g_box_class = nullptr;
 
 std::mutex g_avatar_lock;
 std::string g_avatar_path; /* empty = off */
+ZtAvatarCrop g_avatar_crop{0, 0, 0};
 std::atomic<bool> g_avatar_on{false};
 std::atomic<bool> g_avatar_refresh{false};
 
-constexpr int kVerifyFrames = 45;
-constexpr size_t kMaxBoxes = 8;
-enum Stage { kAnimated, kStill, kSystem };
+constexpr int kVerifyFrames = 30;
+constexpr size_t kMaxBoxes = 16;
+/* enough of a file to count the frames of any picture that can play, and
+   the most the codec reads to fit one; read once per file */
+constexpr size_t kMaxInspected = 8u << 20;
+enum Stage { kAnimated, kStill, kSystem, kLoaded };
 struct Box {
   MonoObject *box; /* pinned by handle */
   uint32_t handle;
@@ -176,11 +194,53 @@ struct Box {
 };
 std::vector<Box> g_boxes; /* UI thread only */
 int g_face_logs = 0;
+int g_avatar_frames = 0;
+size_t g_cache_attempt = 0;
+bool g_cache_done = false;
+
+/* the chosen file as last read */
+struct Inspected {
+  std::string path;
+  off_t size = -1;
+  time_t mtime = 0;
+  bool whole = false;
+  ZtAvatarImage::Info info;
+};
+Inspected g_file;
+std::string g_reported; /* path|mtime the user was told about */
+
+/* the fit thread: everything but the atomics is touched on the UI thread;
+   the worker reads g_fit_job, which stays put while it runs */
+struct FitJob {
+  std::string source, cache;
+  ZtAvatarCrop crop{0, 0, 0};
+  unsigned long generation = 0;
+};
+FitJob g_fit_job;
+std::string g_fit_source, g_fit_cache;
+ZtAvatarCrop g_fit_crop{0, 0, 0};
+unsigned long g_fit_generation = 0;
+unsigned long g_fit_failed_generation = 0;
+time_t g_fit_failed_mtime = 0;
+std::atomic<bool> g_fit_running{false};
+std::atomic<bool> g_fit_done{false};
+std::atomic<bool> g_fit_ok{false};
 
 bool is_animated(const std::string &path) {
   const std::string l = lower(path);
   return ends_with(l, ".gif") || ends_with(l, ".webp");
 }
+
+bool same_crop(const ZtAvatarCrop &a, const ZtAvatarCrop &b) {
+  return a.x == b.x && a.y == b.y && a.side == b.side;
+}
+
+time_t modified_at(const std::string &path) {
+  struct stat st {};
+  return stat(path.c_str(), &st) == 0 ? st.st_mtime : 0;
+}
+
+std::string base_name(const std::string &path) { return path.substr(path.rfind('/') + 1); }
 
 bool own_face(const std::string &uri) {
   static const char kPrefix[] = "profilecache:image/face/";
@@ -204,6 +264,197 @@ bool own_face(const std::string &uri) {
     zt_log("avatar: face %.160s (user 0x%x) match=%d", uri.c_str(), (unsigned)user, (int)match);
   }
   return match;
+}
+
+const Inspected &inspect(const std::string &path) {
+  struct stat st {};
+  if (stat(path.c_str(), &st) != 0)
+    st.st_size = -1;
+  if (path == g_file.path && st.st_size == g_file.size && st.st_mtime == g_file.mtime)
+    return g_file;
+  g_file = Inspected{};
+  g_file.path = path;
+  g_file.size = st.st_size;
+  g_file.mtime = st.st_mtime;
+  if (st.st_size > 0) {
+    const size_t want = std::min((size_t)st.st_size, kMaxInspected);
+    std::string bytes(want, '\0');
+    const int fd = open(path.c_str(), O_RDONLY);
+    size_t got = 0;
+    if (fd >= 0) {
+      ssize_t n;
+      while (got < want && (n = read(fd, &bytes[got], want - got)) > 0)
+        got += (size_t)n;
+      close(fd);
+    }
+    g_file.whole = got == (size_t)st.st_size;
+    g_file.info = ZtAvatarImage::Inspect(reinterpret_cast<const uint8_t *>(bytes.data()), got);
+  }
+  zt_log("avatar: %s format %d %dx%d frames %d bytes %lld", path.c_str(), (int)g_file.info.format,
+         g_file.info.width, g_file.info.height, g_file.info.frames, (long long)g_file.size);
+  return g_file;
+}
+
+bool loads_as_is(const Inspected &f) { return ZtAvatarImage::LoadsAsIs(f.info, f.whole); }
+
+bool needs_fit(const Inspected &f, const ZtAvatarCrop &crop) {
+  return ends_with(lower(f.path), ".gif") && f.info.format == ZtAvatarImage::Format::Gif &&
+         (zt_avatar_should_fit(f.path.c_str(), &crop) || !loads_as_is(f));
+}
+
+std::string cache_path_for(const std::string &source) {
+  std::string name = base_name(source);
+  const size_t dot = name.rfind('.');
+  if (dot != std::string::npos && dot > 0)
+    name = name.substr(0, dot);
+  return std::string(ZT_AVATARS "/cache/") + name + "_fit.gif";
+}
+
+void chosen(std::string *path, ZtAvatarCrop *crop) {
+  std::lock_guard<std::mutex> lock(g_avatar_lock);
+  *path = g_avatar_path;
+  *crop = g_avatar_crop;
+}
+
+void *fit_worker(void *) {
+  char error[160] = {};
+  const int r = zt_avatar_fit(g_fit_job.source.c_str(), g_fit_job.cache.c_str(), &g_fit_job.crop,
+                              error, sizeof(error));
+  if (r == 0)
+    zt_log("avatar: fitted %s -> %s", g_fit_job.source.c_str(), g_fit_job.cache.c_str());
+  else
+    zt_log("avatar: fit of %s failed: %s", g_fit_job.source.c_str(), error[0] ? error : "unknown");
+  g_fit_ok = r == 0;
+  g_fit_done = true;
+  return nullptr;
+}
+
+void start_fit() {
+  g_fit_job.source = g_fit_source;
+  g_fit_job.cache = g_fit_cache;
+  g_fit_job.crop = g_fit_crop;
+  g_fit_job.generation = g_fit_generation;
+  g_fit_done = false;
+  g_fit_ok = false;
+  g_fit_running = true;
+  zt_mkdirs(ZT_AVATARS "/cache");
+  zt_log("avatar: fitting %s (crop %d,%d %d) in the background", g_fit_source.c_str(),
+         g_fit_crop.x, g_fit_crop.y, g_fit_crop.side);
+  pthread_t thread{};
+  if (pthread_create(&thread, nullptr, fit_worker, nullptr) != 0) {
+    g_fit_running = false;
+    zt_log("avatar: fit thread not started");
+    return;
+  }
+  pthread_detach(thread);
+}
+
+void request_fit(const std::string &source, const std::string &cache, const ZtAvatarCrop &crop) {
+  if (source != g_fit_source || cache != g_fit_cache || !same_crop(crop, g_fit_crop)) {
+    g_fit_source = source;
+    g_fit_cache = cache;
+    g_fit_crop = crop;
+    ++g_fit_generation;
+  }
+  if (g_fit_running || theme_quitting() ||
+      (g_fit_failed_generation == g_fit_generation && g_fit_failed_mtime == modified_at(source)))
+    return;
+  start_fit();
+}
+
+/* the file the boxes load: the fitted copy when there is one */
+std::string effective_path() {
+  std::string source;
+  ZtAvatarCrop crop;
+  chosen(&source, &crop);
+  if (source.empty() || !needs_fit(inspect(source), crop))
+    return source;
+  const std::string cache = cache_path_for(source);
+  if (zt_avatar_cache_valid(source.c_str(), cache.c_str(), &crop))
+    return cache;
+  request_fit(source, cache, crop);
+  return source;
+}
+
+/* the fitted copy plays; the chosen file only within the system's limits
+   and not while it is being fitted, else it is shown still */
+bool plays(const std::string &path) {
+  if (!is_animated(path))
+    return false;
+  if (path != g_file.path)
+    return true;
+  return loads_as_is(g_file) && !(g_fit_running && path == g_fit_source);
+}
+
+/* a ZhiThemes notification (also logged) */
+void tell(const char *format, ...) __attribute__((format(printf, 1, 2)));
+void tell(const char *format, ...) {
+  char text[300];
+  va_list args;
+  va_start(args, format);
+  vsnprintf(text, sizeof(text), format, args);
+  va_end(args);
+  zt_menu_notify(text);
+}
+
+/* tells the user once why the chosen picture will not play */
+void report_chosen() {
+  std::string path;
+  ZtAvatarCrop crop;
+  chosen(&path, &crop);
+  if (path.empty())
+    return;
+  const Inspected &f = inspect(path);
+  const std::string key = path + "|" + std::to_string((long long)f.mtime);
+  if (key == g_reported)
+    return;
+  const std::string name = base_name(path);
+  const ZtAvatarImage::Problem problem = ZtAvatarImage::Check(f.info);
+  if (problem == ZtAvatarImage::Problem::NotPicture) {
+    g_reported = key;
+    tell("avatar %s is not a picture the PS5 can show", name.c_str());
+  } else if (needs_fit(f, crop) || loads_as_is(f)) {
+    return;
+  } else {
+    g_reported = key;
+    if (problem == ZtAvatarImage::Problem::TooManyFrames)
+      tell("avatar %s has %d frames (the PS5 plays 150): shown still", name.c_str(), f.info.frames);
+    else
+      tell("avatar %s is %dx%d (the PS5 plays 300x300): shown still", name.c_str(), f.info.width,
+             f.info.height);
+  }
+}
+
+void avatar_reload_boxes();
+
+void consume_fit() {
+  if (!g_fit_done)
+    return;
+  const bool ok = g_fit_ok;
+  g_fit_done = false;
+  g_fit_running = false;
+  if (g_fit_job.generation != g_fit_generation) {
+    if (!g_fit_source.empty() && !theme_quitting())
+      start_fit();
+    return;
+  }
+  if (ok) {
+    if (zt_avatar_cache_valid(g_fit_job.source.c_str(), g_fit_job.cache.c_str(), &g_fit_job.crop))
+      avatar_reload_boxes();
+    return;
+  }
+  g_fit_failed_generation = g_fit_generation;
+  g_fit_failed_mtime = modified_at(g_fit_job.source);
+  std::string path;
+  ZtAvatarCrop crop;
+  chosen(&path, &crop);
+  if (g_fit_job.source != path)
+    return;
+  /* shown still while fitting: plays now if the system can take it as is */
+  if (loads_as_is(inspect(path)))
+    avatar_reload_boxes();
+  else
+    tell("avatar %s is too big to play: shown still", base_name(path).c_str());
 }
 
 MonoObject *make_options(bool animated) {
@@ -238,6 +489,77 @@ void forget_box(size_t i) {
   g_boxes.erase(g_boxes.begin() + (long)i);
 }
 
+bool box_disposed(MonoObject *box) { return get_bool(box, "IsDisposed") == 1; }
+
+enum class Load { kOk, kPending, kFailed };
+
+/* IsLoadSuccessful is also false while the load still runs, so only a
+   finished one (the private isLoadCompleted) counts as failed; without
+   either, a load counts as shown */
+Load load_state(MonoObject *box) {
+  static MonoClassField *completed = nullptr;
+  static bool looked = false;
+  if (!looked) {
+    looked = true;
+    for (MonoClass *k = g_box_class; k && !completed; k = k->parent)
+      completed = mono_class_get_field_from_name(k, "isLoadCompleted");
+    zt_log("avatar: ImageBox.isLoadCompleted %p", (void *)completed);
+  }
+  const int ok = get_bool(box, "IsLoadSuccessful");
+  if (ok != 0 || !completed)
+    return Load::kOk;
+  alignas(8) uint8_t done[8]{};
+  mono_field_get_value(box, completed, done);
+  return done[0] ? Load::kFailed : Load::kPending;
+}
+
+/* without ImageBox.Autoplay a loaded animation stands on its first frame */
+void play_without_autoplay(MonoObject *box) {
+  static int autoplay = -1;
+  if (autoplay < 0)
+    autoplay = getter_of(g_box_class, "Autoplay") ? 1 : 0;
+  if (autoplay)
+    return;
+  MonoMethod *play = nullptr;
+  for (MonoClass *k = g_box_class; k && !play; k = k->parent)
+    play = mono_class_get_method_from_name(k, "Play", 0);
+  if (!play)
+    return;
+  set_bool(box, "Loop", true);
+  MonoObject *exc = nullptr;
+  mono_runtime_invoke(play, box, nullptr, &exc);
+}
+
+void verify_box(Box &b) {
+  const Load load = load_state(b.box);
+  if (load == Load::kPending) {
+    b.frames = kVerifyFrames;
+    return;
+  }
+  if (load == Load::kOk) {
+    if (b.stage == kAnimated)
+      play_without_autoplay(b.box);
+    if (b.stage != kLoaded)
+      zt_log("avatar: shown (%s)", b.stage == kAnimated ? "animated" : b.stage == kStill ? "still" : "system");
+    b.stage = kLoaded;
+    return;
+  }
+  if (b.stage == kAnimated) {
+    b.stage = kStill;
+    b.frames = kVerifyFrames;
+    zt_log("avatar: animated %s did not show; trying it still", b.path.c_str());
+    call_box(b, b.path, make_options(false), false);
+  } else if (b.stage == kStill) {
+    b.stage = kSystem;
+    b.frames = kVerifyFrames;
+    zt_log("avatar: %s did not show; system picture", b.path.c_str());
+    call_box(b, b.uri, nullptr, false);
+  } else if (b.stage == kSystem) {
+    b.stage = kLoaded;
+    zt_log("avatar: even the system picture did not load");
+  }
+}
+
 void BoxLoad_Hook(MonoObject *box, MonoString *uri, MonoObject *action, MonoObject *option,
                   bool set_image) {
   /* off (or leaving): every picture of the ShellUI passes untouched */
@@ -246,22 +568,21 @@ void BoxLoad_Hook(MonoObject *box, MonoString *uri, MonoObject *action, MonoObje
     return;
   }
   const std::string text = Mono_to_String(uri);
-  std::string path;
-  if (own_face(text)) {
-    std::lock_guard<std::mutex> lock(g_avatar_lock);
-    path = g_avatar_path;
-  }
+  const std::string path = own_face(text) ? effective_path() : std::string();
   if (path.empty()) {
     g_box_orig(box, uri, action, option, set_image);
     return;
   }
-  const bool animated = is_animated(path);
+  const bool animated = plays(path);
   /* the same box asked again: its old entry goes */
   for (size_t i = 0; i < g_boxes.size(); ++i)
     if (g_boxes[i].box == box) {
       forget_box(i);
       break;
     }
+  for (size_t i = g_boxes.size(); i-- > 0;)
+    if (box_disposed(g_boxes[i].box))
+      forget_box(i);
   if (g_boxes.size() >= kMaxBoxes)
     forget_box(0);
   Box b{box, mono_gchandle_new(box, 1), action, action ? mono_gchandle_new(action, 1) : 0u,
@@ -274,72 +595,91 @@ void BoxLoad_Hook(MonoObject *box, MonoString *uri, MonoObject *action, MonoObje
     option = make_options(animated);
   }
   static std::string logged;
-  if (logged != path) {
-    logged = path;
+  const std::string key = path + (animated ? "|a" : "|s");
+  if (logged != key) {
+    logged = key;
     zt_log("avatar: %s -> %s (animated %d)", text.c_str(), path.c_str(), (int)animated);
   }
   call_box(b, path, option, animated);
 }
 
-bool box_loaded(MonoObject *box) {
-  int v = get_bool(box, "IsLoaded");
-  if (v < 0)
-    v = get_bool(box, "HasImage");
-  return v != 0; /* unknown counts as loaded */
+bool refresh_profile_cache() {
+  static MonoMethod *refresh = nullptr;
+  static bool looked = false;
+  if (!looked) {
+    MonoImage *image = getDLLimage("Sce.Vsh.ProfileCache.dll");
+    MonoClass *k = image ? mono_class_from_name(image, "Sce.Vsh.ProfileCache", "Utilities") : nullptr;
+    refresh = k ? mono_class_get_method_from_name(k, "RefreshCache", 1) : nullptr;
+    looked = refresh != nullptr; /* the dll may load later */
+    zt_log("avatar: ProfileCache.Utilities.RefreshCache %p", (void *)refresh);
+  }
+  int user = -1;
+  if (!refresh || sceUserServiceGetForegroundUser(&user) != 0 || user <= 0)
+    return false;
+  void *args[1] = {&user};
+  MonoObject *exc = nullptr;
+  mono_runtime_invoke(refresh, nullptr, args, &exc);
+  zt_log("avatar: profile cache refreshed (user 0x%x, exception %d)", (unsigned)user, exc ? 1 : 0);
+  return exc == nullptr;
 }
 
-void avatar_tick() {
-  for (size_t i = 0; i < g_boxes.size();) {
+/* every box showing the face loads it again (new file, fitted copy ready,
+   avatar off) */
+void avatar_reload_boxes() {
+  report_chosen();
+  const std::string path = g_avatar_on ? effective_path() : std::string();
+  const bool animated = plays(path);
+  int reloaded = 0;
+  for (size_t i = g_boxes.size(); i-- > 0;) {
     Box &b = g_boxes[i];
-    if (--b.frames > 0) {
-      ++i;
-      continue;
-    }
-    if (box_loaded(b.box) || b.stage == kSystem) {
-      if (b.stage == kSystem)
-        zt_log("avatar: %s did not load; the system picture stays (too big? the editor makes GIFs fit)",
-               b.path.c_str());
+    if (box_disposed(b.box)) {
       forget_box(i);
       continue;
     }
-    if (b.stage == kAnimated) {
-      b.stage = kStill;
-      b.frames = kVerifyFrames;
-      zt_log("avatar: animated %s did not show; trying it still", b.path.c_str());
-      call_box(b, b.path, make_options(false), false);
-    } else {
+    b.frames = kVerifyFrames;
+    if (path.empty()) {
       b.stage = kSystem;
-      b.frames = kVerifyFrames;
-      zt_log("avatar: %s did not show; system picture", b.path.c_str());
       call_box(b, b.uri, nullptr, false);
+    } else {
+      b.path = path;
+      b.stage = animated ? kAnimated : kStill;
+      call_box(b, path, make_options(animated), animated);
     }
-    ++i;
+    ++reloaded;
   }
+  zt_log("avatar: %d box(es) reloaded with %s (animated %d)", reloaded,
+         path.empty() ? "the system picture" : path.c_str(), (int)animated);
+  /* off: nothing left to watch */
+  if (path.empty())
+    while (!g_boxes.empty())
+      forget_box(g_boxes.size() - 1);
+}
+
+void avatar_tick() {
+  consume_fit();
   if (g_avatar_refresh.exchange(false)) {
-    /* the boxes already showing the face load it again */
-    static MonoMethod *refresh = nullptr;
-    static bool looked = false;
-    if (!looked) {
-      looked = true;
-      MonoImage *image = getDLLimage("Sce.Vsh.ProfileCache.dll");
-      MonoClass *k = image ? mono_class_from_name(image, "Sce.Vsh.ProfileCache", "Utilities") : nullptr;
-      refresh = k ? mono_class_get_method_from_name(k, "RefreshCache", 1) : nullptr;
-      zt_log("avatar: ProfileCache.Utilities.RefreshCache %p", (void *)refresh);
-    }
-    int user = -1;
-    if (refresh && sceUserServiceGetForegroundUser(&user) == 0 && user > 0) {
-      void *args[1] = {&user};
-      MonoObject *exc = nullptr;
-      mono_runtime_invoke(refresh, nullptr, args, &exc);
-      zt_log("avatar: profile cache refreshed (user 0x%x, exception %d)", (unsigned)user, exc ? 1 : 0);
-    }
+    avatar_reload_boxes();
+    refresh_profile_cache();
   }
+  /* after a reboot or a sign-in the profile cache may come late: asked
+     again a few times while the avatar is on */
+  if (g_avatar_frames < 3601)
+    ++g_avatar_frames;
+  static const int kCacheFrames[] = {300, 900, 1800, 3600};
+  if (g_avatar_on && !g_cache_done && g_cache_attempt < 4 &&
+      g_avatar_frames >= kCacheFrames[g_cache_attempt]) {
+    ++g_cache_attempt;
+    g_cache_done = refresh_profile_cache();
+  }
+  for (Box &b : g_boxes)
+    if (b.frames > 0 && --b.frames == 0)
+      verify_box(b);
 }
 
 void install_avatar() {
-  MonoClass *box = mono_class_from_name(g_pui, "Sce.PlayStation.PUI.UI3", "ImageBox");
+  g_box_class = mono_class_from_name(g_pui, "Sce.PlayStation.PUI.UI3", "ImageBox");
   g_options_class = mono_class_from_name(g_pui, "Sce.PlayStation.PUI", "ImageOptions");
-  const uint64_t at = box ? Get_Address_of_Method(g_pui, box, "LoadAsync", 4) : 0;
+  const uint64_t at = g_box_class ? Get_Address_of_Method(g_pui, g_box_class, "LoadAsync", 4) : 0;
   const bool ok = at && g_options_class &&
                   theme_hook(at, reinterpret_cast<void *>(&BoxLoad_Hook),
                              reinterpret_cast<void **>(&g_box_orig));
@@ -776,11 +1116,21 @@ void zt_native_apply(const std::string &script) {
     else
       path = full;
   }
+  /* avatarCrop 'x,y,side': the square the editor's avatar maker chose, in
+     the source's pixels (fitted on the PS5); none = the middle square */
+  ZtAvatarCrop crop{0, 0, 0};
+  if (!path.empty()) {
+    const std::string c = zt_theme_text(script, "avatarCrop");
+    int x = 0, y = 0, side = 0;
+    if (sscanf(c.c_str(), "%d,%d,%d", &x, &y, &side) == 3 && x >= 0 && y >= 0 && side > 0)
+      crop = ZtAvatarCrop{x, y, side};
+  }
   bool changed;
   {
     std::lock_guard<std::mutex> lock(g_avatar_lock);
-    changed = path != g_avatar_path;
+    changed = path != g_avatar_path || !same_crop(crop, g_avatar_crop);
     g_avatar_path = path;
+    g_avatar_crop = crop;
   }
   /* the face is swapped as long as it is on; switched off, the boxes ask
      the system picture again on the refresh */
@@ -835,6 +1185,17 @@ void zt_native_apply(const std::string &script) {
 
 }
 
+extern "C" int zt_avatar_decode_fits(const unsigned char *data, size_t size) {
+  return ZtAvatarImage::DecodeFits(ZtAvatarImage::Inspect(data, size));
+}
+
+/* the fit thread must be out of the module before it goes */
+void zt_native_unload() {
+  zt_avatar_cancel = 1;
+  for (int i = 0; i < 300 && g_fit_running && !g_fit_done; ++i)
+    usleep(10000);
+}
+
 void zt_native_tick() {
   if (!g_installed || theme_quitting())
     return;
@@ -847,6 +1208,8 @@ void zt_native_tick() {
 #else
 
 void zt_native_install(MonoImage *) {}
+void zt_native_unload() {}
+extern "C" int zt_avatar_decode_fits(const unsigned char *, size_t) { return 0; }
 void zt_native_apply(const std::string &) {}
 void zt_native_tick() {}
 

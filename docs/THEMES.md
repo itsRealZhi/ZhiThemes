@@ -34,7 +34,10 @@ Older themes used `nameCopy` ("Big name"), `homeTitle` and `hideTitle`. They sti
 
 ## Avatar and the system background
 
-- **Avatar** (Top bar → Avatar): "Make avatar…" turns a picture, GIF or video into your profile picture. Place the circle (drag, mouse wheel to zoom), pick the part of a video, the frames per second and the size. 110 KB is the safe file size; 160–192 px with more frames plays smoother than 256 px. The avatar is yours: it is not put in a `.ztheme` pack.
+- **Avatar** (Top bar → Avatar): "Make avatar…" turns a picture, GIF or video into your profile picture. Place the circle (drag, mouse wheel to zoom).
+  - **GIF:** sent as it is (up to 8 MB) together with the circle; the PS5 cuts it out and fits it (256 px, up to 120 frames) in the background. Until then, a few seconds, the avatar shows still. A GIF put in `Assets/avatars/` by hand is fitted the same way (the middle square).
+  - **Video / animated WebP:** pick the part (Start, Length) and the frames per second; the part plays in a loop in the circle as it will look, with a time line (blue = in the avatar, red = cut by the 120 frames; click it to move the start). Made at 256 px.
+  - The PS5 itself plays an animated avatar up to 300×300 and 150 frames; a bigger one would freeze it, so ZhiThemes never gives it one. The avatar is yours: it is not put in a `.ztheme` pack.
 - **Behind Settings and Trophies** (Screen → Settings / Trophies → Background): your own picture or `.mp4`, or "Use the wallpaper" for the Home wallpaper. With "Use the wallpaper" the Home and the system screens share one video (or picture) that keeps playing between them. A video the PS5 player refuses shows nothing: use H.264, 1080p is the safest.
 - **Background colour** (Background → System background colour): base colour and glow of the system's own background, also behind the Home when no game art is shown.
 

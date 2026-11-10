@@ -21,7 +21,7 @@ Alpha: made on firmware **9.60**; also seen working on **13.60** by a tester. Ot
 - **Game / App Library tile:** its games can stay hidden under the row until you open it, also after coming back from it.
 - **Clean background:** one switch shows only the PS5's own dark background with its light at the top everywhere (Home, game pages, folders, games without art, Settings), over any wallpaper, game art or custom background.
 - **Wallpaper:** a picture or an `.mp4` video, with overlay, vignette, dark edges and 23 particle styles (snow, sakura, rain, starfield, digital rain…).
-- **Extras:** own clock and date, play info ("Last played 3 days ago"), fake trophies, animated avatar (GIF), animations (tab change, folders, names, button bounce), debug panel (fps, memory, temperatures).
+- **Extras:** own clock and date, play info ("Last played 3 days ago"), fake trophies, animated avatar (GIF or video: crop it with a circle and zoom; a video part loops in the editor as it will look, and a big GIF is cut and fitted on the PS5 itself, so it never freezes the console), animations (tab change, folders, names, button bounce), debug panel (fps, memory, temperatures).
 - **Fonts:** your own system font without a restart; colours and sizes of the texts.
 
 ### Other screens

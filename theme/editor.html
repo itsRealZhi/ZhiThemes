@@ -202,6 +202,10 @@
   .avatar-maker h3 { margin: 0 0 12px; }
   .avatar-maker .am-main { display: flex; gap: 18px; flex-wrap: wrap; }
   .avatar-maker canvas { width: 360px; height: 360px; cursor: grab; touch-action: none; border-radius: 8px; }
+  .avatar-maker .am-left { display: flex; flex-direction: column; gap: 8px; width: 360px; }
+  .avatar-maker canvas.am-time { width: 360px; height: 34px; cursor: pointer; border-radius: 6px; }
+  .avatar-maker .am-play { display: flex; gap: 8px; align-items: center; font-size: 12px; opacity: .85; }
+  .avatar-maker .am-play .btn { padding: 2px 10px; }
   .avatar-maker .am-ctl { display: flex; flex-direction: column; gap: 10px; width: 300px; }
   .avatar-maker label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
   .avatar-maker .am-info { margin: 0; font-size: 13px; opacity: .8; }
@@ -985,7 +989,7 @@
     userAlign: ['User alignment', 'Left, centre or right inside the width'],
     userWidth: ['User box width', 'Width from User X'],
     avatarOn: ['Own avatar', 'Your picture as the profile picture wherever the system shows it; GIF plays animated'],
-    avatar: ['Avatar picture', 'Make it from a picture, GIF, WebP or video (made square, up to 256×256, 120 frames, 110 KB)'],
+    avatar: ['Avatar picture', 'Make it from a picture, GIF, WebP or video: place the circle and zoom; a GIF is sent whole and the PS5 cuts and fits it (256 px, 120 frames)'],
 
     measureScreen: ['Measure screen', 'The console tells the editor where each element is'],
 
@@ -1570,6 +1574,7 @@
       asel.value = anow;
       asel.onchange = function () {
         setField(f.key, jsString(asel.value)); mark(jsString(asel.value));
+        setField('avatarCrop', "''");
         if (asel.value) { setField('avatarOn', 'true'); aimg.src = '/asset?kind=avatars&name=' + encodeURIComponent(asel.value); }
         else aimg.removeAttribute('src');
       };
@@ -1594,7 +1599,7 @@
         var n = asel.value;
         if (!n || !confirm('Delete ' + n + ' from the PS5?')) return;
         request('POST', '/avatar/delete?name=' + encodeURIComponent(n)).then(function () {
-          setField('avatar', "''"); setField('avatarOn', 'false');
+          setField('avatar', "''"); setField('avatarOn', 'false'); setField('avatarCrop', "''");
           renderTabs(); return apply();
         }).then(function () { status('avatar ' + n + ' deleted', 'ok'); }).catch(fail);
       };
@@ -1888,7 +1893,7 @@
     var q = (filter || '').trim().toLowerCase(), shown = 0;
     list.forEach(function (g) {
       var fields = g.fields.filter(function (f) {
-        if (RGB_FOLDED.test(f.key)) return false;
+        if (RGB_FOLDED.test(f.key) || f.key === 'avatarCrop') return false;
         return !q ||(f.key + ' ' + labelOf(f.key) + ' ' + hintOf(f)).toLowerCase().indexOf(q) >= 0;
       });
       if (!fields.length) return;
@@ -4860,7 +4865,7 @@
     { id: 'scrExperimental', name: 'Experimental', keys: ['tileAnimAll', 'tileAnimAllMax', 'measureScreen', 'screenDump'] }
   ];
   /* data fields with their own editors (Folders / Tiles tabs, Options menu) */
-  var PANEL_SKIP = /^(folders|foldersIcon|favorites|customTileChoice|customBgChoice|themeName)$/;
+  var PANEL_SKIP = /^(folders|foldersIcon|favorites|customTileChoice|customBgChoice|themeName|avatarCrop)$/;
   var BY = {};
   EL.forEach(function (e) { BY[e.id] = e; if (MODULE_FIELDS[e.id]) e.extra = MODULE_FIELDS[e.id]; });
   var VBY = {};
@@ -6893,15 +6898,16 @@
       })
       .catch(fail);
   };
-  /* ---- avatar maker. The PS5 plays an animated avatar (GIF)
-     up to 300×300 and 150 frames; like AniketosHEN's avatar_codec it stays
-     at most 120 frames and 110 KB. a window to place the circle
-     (drag, zoom), choose the part of a video, the frames per second and
-     the size; frames only keep the pixels that changed (transparent
-     elsewhere), so more frames fit. GIF / animated WebP frames come from
-     ImageDecoder (Chrome, Edge), a video from a <video>; a still picture
-     becomes a PNG. ---- */
-  var AVATAR_MAX_FRAMES = 120, AVATAR_MAX_BYTES = 110 * 1024;
+  /* ---- avatar maker. The PS5 plays an animated avatar (GIF) up to
+     300×300 and 150 frames. A window to place the circle (drag, zoom).
+     A GIF is sent as it is with the square chosen (avatarCrop 'x,y,side'):
+     the PS5 cuts it out and fits it (256 px, at most 120 frames, like
+     AniketosHEN's avatar_codec), so nothing is lost here. A video or an
+     animated WebP is made into a GIF here (part, frames per second, size;
+     frames only keep the pixels that changed); a still picture becomes a
+     PNG. GIF / WebP frames come from ImageDecoder (Chrome, Edge) or
+     gifFrames, a video from a <video>. ---- */
+  var AVATAR_MAX_FRAMES = 120, AVATAR_MAX_BYTES = 2 * 1024 * 1024, AVATAR_MAX_GIF = 8 * 1024 * 1024;
   function avatarCanvas(size) {
     var c = document.createElement('canvas');
     c.width = c.height = size;
@@ -7225,6 +7231,7 @@
       .then(function (res) { return res.text().then(function (t) { if (!res.ok) throw new Error(t); }); })
       .then(function () {
         setField('avatar', jsString(r.name));
+        setField('avatarCrop', jsString(r.crop || ''));
         setField('avatarOn', 'true');
         renderTabs();
         return apply();
@@ -7234,6 +7241,8 @@
   /* the window: circle over the picture, drag = move, wheel / slider = zoom */
   function openAvatarMaker(file) {
     var animated = /\.(gif|webp)$/i.test(file.name) || /image\/(gif|webp)/.test(file.type);
+    /* a GIF goes whole to the PS5 with the crop (up to 8 MB) */
+    var whole = (/\.gif$/i.test(file.name) || file.type === 'image/gif') && file.size <= AVATAR_MAX_GIF;
     var video = /\.(mp4|m4v|webm|mov)$/i.test(file.name) || /^video\//.test(file.type);
     status('avatar: reading ' + file.name + '…');
     var loading = video ? avatarLoadVideo(file) : animated ? avatarDecodeAll(file) : avatarLoadImage(file);
@@ -7245,44 +7254,48 @@
       /* a recorded .webm may never tell its duration: 6 s then */
       var VD = vid ? (isFinite(vid.duration) && vid.duration > 0.05 ? vid.duration : 6) : 0;
       var S = { zoom: 1, cx: W / 2, cy: H / 2, start: 0, length: Math.min(4, VD),
-                fps: 15, size: 192, maxkb: 110 };
+                fps: 15, size: 256 };
       var ov = document.createElement('div');
       ov.className = 'avatar-maker';
       ov.innerHTML =
         '<div class="am-box"><h3>Avatar</h3>' +
-        '<div class="am-main"><canvas width="360" height="360"></canvas><div class="am-ctl">' +
+        '<div class="am-main"><div class="am-left"><canvas class="am-view" width="360" height="360"></canvas>' +
+        (vid ? '<canvas class="am-time" width="720" height="68"></canvas>' +
+               '<div class="am-play"><button class="btn am-pp">Pause</button><span class="am-tc"></span></div>' : '') +
+        '</div><div class="am-ctl">' +
         '<label>Zoom <input type="range" data-k="zoom" min="1" max="6" step="0.01"></label>' +
         (vid ? '<label>Start (s) <input type="range" data-k="start" min="0" step="0.05"></label>' +
-               '<label>Length (s) <input type="range" data-k="length" min="0.5" max="6" step="0.1"></label>' : '') +
-        (vid || frames ? '<label>Frames per second <select data-k="fps"><option>10</option><option>12</option><option>15</option>' +
+               '<label>Length (s) <input type="range" data-k="length" min="0.2" step="0.1"></label>' : '') +
+        (!whole && (vid || frames) ? '<label>Frames per second <select data-k="fps"><option>10</option><option>12</option><option>15</option>' +
                          '<option>20</option><option>25</option><option>30</option><option>50</option></select></label>' : '') +
-        '<label>Size <select data-k="size"><option value="128">128 px</option><option value="160">160 px</option>' +
-        '<option value="192">192 px</option><option value="256">256 px</option></select></label>' +
-        (vid || frames ? '<label>Largest file <select data-k="maxkb"><option value="110">110 KB (safe, like AniketosHEN)</option>' +
-                         '<option value="250">250 KB</option><option value="500">500 KB</option><option value="1000">1 MB</option></select></label>' : '') +
         '<p class="am-info"></p><p class="tip">Drag the picture to move it inside the circle; mouse wheel or Zoom to make it bigger. ' +
-        'The PS5 shows the avatar small: 160-192 px with more frames plays smoother than 256 px. ' +
-        'A video where everything moves (fire, water) needs a bigger file to stay smooth; above 110 KB is not tested on the PS5 yet.</p>' +
+        (whole ? 'The GIF is sent as it is with this circle: the PS5 cuts it out and makes it fit (256 px, up to 120 frames). ' +
+                 'Until that is done (a few seconds) the avatar shows still.'
+               : 'The avatar is made at 256 px (the most the PS5 plays well); an animated one only smaller if it passes 2 MB.') + '</p>' +
         '<div class="am-btns"><button class="btn am-ok">Make avatar</button><button class="btn am-cancel">Cancel</button></div>' +
         '</div></div></div>';
       document.body.appendChild(ov);
-      var cv = ov.querySelector('canvas'), ctx = cv.getContext('2d'), info = ov.querySelector('.am-info');
+      var cv = ov.querySelector('canvas.am-view'), ctx = cv.getContext('2d'), info = ov.querySelector('.am-info');
       var crop = function () {
         var side = Math.min(W, H) / S.zoom;
         var x = Math.max(0, Math.min(W - side, S.cx - side / 2)), y = Math.max(0, Math.min(H - side, S.cy - side / 2));
         S.cx = x + side / 2; S.cy = y + side / 2;
         return { x: x, y: y, side: side };
       };
+      /* the seconds of the video the GIF holds: the part, cut at 120 frames */
+      var used = function () { return Math.max(1 / S.fps, Math.min(S.length, AVATAR_MAX_FRAMES / S.fps, VD - S.start)); };
       var count = function () {
-        if (vid) return Math.max(1, Math.min(AVATAR_MAX_FRAMES, Math.round(S.length * S.fps)));
+        if (whole) return Math.min(frames.length, AVATAR_MAX_FRAMES);
+        if (vid) return Math.max(1, Math.min(AVATAR_MAX_FRAMES, Math.round(used() * S.fps)));
         if (frames) {
           var total = frames.reduce(function (a, f) { return a + f.delay; }, 0);
           return Math.max(1, Math.min(AVATAR_MAX_FRAMES, frames.length, Math.round(total / 1000 * S.fps)));
         }
         return 1;
       };
+      var shownAt = 0, timer = null;
       var draw = function () {
-        var src = frames ? frames[0].image : still || vid;
+        var src = frames ? frames[shownAt].image : still || vid;
         ctx.fillStyle = '#000'; ctx.fillRect(0, 0, 360, 360);
         avatarDraw(ctx, src, crop(), 360);
         ctx.save();
@@ -7290,16 +7303,40 @@
         ctx.beginPath(); ctx.rect(0, 0, 360, 360); ctx.arc(180, 180, 180, 0, Math.PI * 2, true); ctx.fill('evenodd');
         ctx.strokeStyle = '#2fd0e6'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(180, 180, 179, 0, Math.PI * 2); ctx.stroke();
         ctx.restore();
-        info.textContent = W + '×' + H + (vid ? ', video ' + VD.toFixed(1) + ' s' : frames ? ', ' + frames.length + ' frames' : '') +
-                           ' → ' + count() + ' frame' + (count() > 1 ? 's' : '');
+        if (vid) {
+          var u = used(), cut = S.length > u + 0.05;
+          info.textContent = W + '×' + H + ', video ' + VD.toFixed(1) + ' s → ' + S.start.toFixed(1) + '–' + (S.start + u).toFixed(1) +
+                             ' s, ' + count() + ' frames at ' + S.fps + ' fps' +
+                             (cut ? ' (the GIF holds 120 frames: the last ' + (S.length - u).toFixed(1) + ' s are cut; fewer fps keeps more)' : '');
+          timeline();
+        } else
+          info.textContent = W + '×' + H + (frames ? ', ' + frames.length + ' frames' : '') +
+                             ' → ' + count() + ' frame' + (count() > 1 ? 's' : '');
+      };
+      /* the video's time line: the whole video, the part in the GIF (blue),
+         the part cut by the 120 frames (red), where it plays now (white);
+         click or drag = the part starts there */
+      var tl = ov.querySelector('canvas.am-time'), tlx = tl ? tl.getContext('2d') : null, tc = ov.querySelector('.am-tc');
+      var timeline = function () {
+        if (!tlx) return;
+        var w = tl.width, h = tl.height, px = function (t) { return t / VD * w; }, u = used();
+        tlx.clearRect(0, 0, w, h);
+        tlx.fillStyle = '#ffffff22'; tlx.fillRect(0, 16, w, h - 32);
+        if (S.length > u) { tlx.fillStyle = '#e0505088'; tlx.fillRect(px(S.start + u), 12, px(S.length - u), h - 24); }
+        tlx.fillStyle = '#2fd0e6'; tlx.fillRect(px(S.start), 8, Math.max(2, px(u)), h - 16);
+        var t = vid.currentTime;
+        tlx.fillStyle = '#fff'; tlx.fillRect(Math.min(w - 3, px(t)), 0, 3, h);
+        if (tc) tc.textContent = (t - S.start).toFixed(2) + ' / ' + u.toFixed(2) + ' s · frame ' +
+                                 Math.min(count(), Math.floor((t - S.start) * S.fps) + 1) + ' of ' + count();
       };
       ov.querySelectorAll('[data-k]').forEach(function (el) {
         var k = el.getAttribute('data-k');
-        if (k === 'start') el.max = Math.max(0, VD - 0.5);
+        if (k === 'start') el.max = Math.max(0, VD - 0.2);
+        if (k === 'length') el.max = Math.max(0.2, VD);
         el.value = S[k];
         el.oninput = el.onchange = function () {
           S[k] = +el.value;
-          if (k === 'start' && vid) avatarSeek(vid, S.start).then(draw);
+          if (vid && (k === 'start' || k === 'length' || k === 'fps')) restart();
           else draw();
         };
       });
@@ -7318,11 +7355,79 @@
         ov.querySelector('[data-k="zoom"]').value = S.zoom;
         draw();
       };
-      var close = function () { ov.remove(); };
+      /* the video part plays in a loop, shown at the GIF's frames per second */
+      var playing = !!vid, raf = 0, shownK = -1;
+      var restart = function () {
+        if (!vid) return;
+        if (S.start > VD - 0.2) S.start = Math.max(0, VD - 0.2);
+        shownK = -1;
+        vid.currentTime = S.start;
+        draw();
+      };
+      var loop = function () {
+        raf = 0;
+        if (!ov.isConnected || !playing) return;
+        var t = vid.currentTime, end = S.start + used();
+        if (t >= end - 0.001 || t < S.start - 0.05 || vid.ended) {
+          vid.currentTime = S.start;
+          shownK = -1;
+          if (vid.paused) vid.play().catch(function () {});
+        } else {
+          var k = Math.floor((t - S.start) * S.fps);
+          if (k !== shownK) { shownK = k; draw(); } else timeline();
+        }
+        raf = requestAnimationFrame(loop);
+      };
+      var setPlaying = function (on) {
+        playing = on;
+        var pp = ov.querySelector('.am-pp');
+        if (pp) pp.textContent = on ? 'Pause' : 'Play';
+        if (on) { vid.play().catch(function () {}); if (!raf) raf = requestAnimationFrame(loop); }
+        else { vid.pause(); if (raf) cancelAnimationFrame(raf); raf = 0; draw(); }
+      };
+      if (vid) {
+        ov.querySelector('.am-pp').onclick = function () { setPlaying(!playing); };
+        var seekAt = function (e) {
+          var r = tl.getBoundingClientRect(), t = (e.clientX - r.left) / r.width * VD;
+          S.start = Math.max(0, Math.min(VD - 0.2, t));
+          ov.querySelector('[data-k="start"]').value = S.start;
+          restart();
+        };
+        var tdrag = false;
+        tl.onpointerdown = function (e) { tdrag = true; tl.setPointerCapture(e.pointerId); seekAt(e); };
+        tl.onpointermove = function (e) { if (tdrag) seekAt(e); };
+        tl.onpointerup = function () { tdrag = false; };
+        vid.muted = true;
+        vid.loop = false;
+      }
+      /* the GIF plays in the circle */
+      var tick = function () {
+        if (!ov.isConnected) return;
+        shownAt = (shownAt + 1) % frames.length;
+        draw();
+        timer = setTimeout(tick, Math.max(40, frames[shownAt].delay));
+      };
+      if (frames && frames.length > 1) timer = setTimeout(tick, Math.max(40, frames[0].delay));
+      var close = function () {
+        if (timer) clearTimeout(timer);
+        if (vid) { playing = false; if (raf) cancelAnimationFrame(raf); vid.pause(); }
+        ov.remove();
+      };
       ov.querySelector('.am-cancel').onclick = function () { close(); status('avatar: cancelled'); };
       ov.querySelector('.am-ok').onclick = function () {
         var c = crop(), n = count(), list = [], btn = this;
         btn.disabled = true;
+        if (vid) setPlaying(false);
+        if (whole) {
+          /* the crop in the GIF's pixels; the whole of a square GIF = none */
+          var side = Math.round(c.side), cx = Math.round(c.x), cy = Math.round(c.y);
+          var full = W === H && side >= W - 1;
+          close();
+          uploadAvatarResult({ blob: file, name: avatarName(file) + '.gif', crop: full ? '' : cx + ',' + cy + ',' + side,
+                               info: W + '×' + H + ', ' + frames.length + ' frames, ' + Math.round(file.size / 1024) + ' KB, cut on the PS5' })
+            .catch(fail);
+          return;
+        }
         var grabVideo = function (k) {
           if (k >= n) return Promise.resolve();
           return avatarSeek(vid, S.start + k / S.fps).then(function () {
@@ -7354,11 +7459,11 @@
         }
         job.then(function () {
           info.textContent = 'making the GIF…';
-          return avatarEncode(list, avatarName(file), S.size, S.maxkb * 1024);
+          return avatarEncode(list, avatarName(file), S.size, AVATAR_MAX_BYTES);
         }).then(function (r) { close(); return uploadAvatarResult(r); })
           .catch(function (e) { btn.disabled = false; info.textContent = e.message; fail(e); });
       };
-      if (vid) avatarSeek(vid, 0).then(draw); else draw();
+      if (vid) avatarSeek(vid, 0).then(function () { draw(); setPlaying(true); }); else draw();
       status('avatar: place the circle and press Make avatar');
     }).catch(fail);
   }

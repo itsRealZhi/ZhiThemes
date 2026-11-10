@@ -401,7 +401,8 @@
     userWidth: 400,             /* width of the name box, from userX (400) */
     /* --- avatar --- */
     avatarOn: false,            /* your own profile picture wherever the system shows it; .gif/.webp play animated (false) */
-    avatar: '',                 /* that picture, uploaded in the editor (an .mp4 is turned into a GIF there); up to 300x300 and 150 frames ('') */
+    avatar: '',                 /* that picture, made with the editor's avatar maker or any file of Assets/avatars; a big GIF is fitted on the PS5 (256 px, 120 frames) and shown still meanwhile ('') */
+    avatarCrop: '',             /* the square of a GIF chosen in the avatar maker, 'x,y,side' in its pixels; the PS5 cuts it out ('' = the middle) ('') */
     /* --- logs --- */
     measureScreen: true,        /* the console tells the editor where each element is, for the Visual tab (true) */
     /* --- bars --- */

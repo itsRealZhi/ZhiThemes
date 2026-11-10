@@ -3720,6 +3720,7 @@ void theme_status(int *hooks, int *doubles) {
 /* hooks pass straight through from now on, then are swapped back out */
 int theme_unload() {
   g_quit = true;
+  zt_native_unload();
   /* libScePsm must not point at names in this module once it is gone */
   theme_psm_names(-1);
   /* a newer ZhiThemes taking over is not a crash */

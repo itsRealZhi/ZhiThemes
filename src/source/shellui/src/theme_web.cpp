@@ -741,6 +741,12 @@ void handle(int fd) {
     if (!ok_name)
       return reply(fd, 400, "Bad Request", "text/plain", "invalid name");
     const bool gone = unlink((std::string(ZT_AVATARS "/") + name).c_str()) == 0;
+    /* and the copy fitted on the PS5 (cache/<stem>_fit.gif) */
+    const size_t dot = name.rfind('.');
+    const std::string fit = std::string(ZT_AVATARS "/cache/") +
+                            (dot == std::string::npos || dot == 0 ? name : name.substr(0, dot)) + "_fit.gif";
+    unlink(fit.c_str());
+    unlink((fit + ".meta").c_str());
     zt_log("web: avatar %s %s", name.c_str(), gone ? "deleted" : "NOT deleted");
     return gone ? reply(fd, 200, "OK", "text/plain", "deleted") : reply(fd, 404, "Not Found", "text/plain", "missing");
   }
@@ -791,6 +797,8 @@ void handle(int fd) {
     if (DIR *d = opendir(dir.c_str())) {
       while (dirent *e = readdir(d)) {
         const std::string name = e->d_name;
+        if (e->d_type == DT_DIR) /* avatars/cache */
+          continue;
         if (name[0] == '.' || name.find_first_of("\"\\") != std::string::npos ||
             (name.size() > 5 && name.compare(name.size() - 5, 5, ".part") == 0))
           continue;

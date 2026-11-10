@@ -27,6 +27,8 @@ struct MonoImage;
  */
 void zt_native_install(MonoImage *pui);
 void zt_native_apply(const std::string &script);
+/* leaving: waits for the avatar fit thread (at most 3 s) */
+void zt_native_unload();
 /* UI thread, every frame */
 void zt_native_tick();
 
