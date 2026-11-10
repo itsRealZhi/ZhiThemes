@@ -519,6 +519,73 @@ bool wait_shellui_started(pid_t pid) {
   return true;
 }
 
+/* The PS5 web browser (a payload manager page) open while ZhiThemes goes
+   into ShellUI: ShellUI froze a few ms after the module started and the
+   system killed it (seen on 9.60 and 13.60, only when the ELF was sent
+   from the browser; from a PC or an autoloader it always worked).
+   Only the page process counts: SceNKUIProcess and SceNKNetworkProcess
+   stay alive after the browser is closed.
+   Returns the name of the browser process still running, or nullptr. */
+const char *browser_process() {
+  static const char kPage[] = "SceNKWebProcess";
+  return onion_find_pid(kPage) > 0 ? kPage : nullptr;
+}
+
+/* wait until the browser is closed before injecting. False when a newer
+   watcher took over meanwhile. */
+bool wait_browser_closed(const char *when) {
+  const char *open_now = browser_process();
+  if (!open_now)
+    return true;
+  logf("%s: the web browser is open (%s); waiting until it is closed before injecting", when,
+       open_now);
+  notify("ZhiThemes will load when you leave the payload manager.");
+  const long long t0 = now_ms();
+  for (int i = 0; browser_process(); ++i) {
+    usleep(250 * 1000);
+    if (i % 4 == 3 && !still_the_watcher()) {
+      logf("watcher %d: a newer watcher took over, stopping", getpid());
+      return false;
+    }
+  }
+  logf("web browser closed after %lld ms", now_ms() - t0);
+  usleep(500 * 1000);
+  return still_the_watcher();
+}
+
+/* The browser's UI and network processes stay alive after the browser is
+   closed, and a ShellUI that still has them froze right after the module
+   started (a ShellUI where the browser was never opened never did). Close
+   them before injecting; the browser starts new ones when it is opened
+   again. */
+void close_browser_helpers() {
+  static const char *const kHelpers[] = {"SceNKUIProcess", "SceNKNetworkProcess"};
+  bool any = false;
+  for (const char *name : kHelpers) {
+    const pid_t pid = onion_find_pid(name);
+    if (pid <= 0)
+      continue;
+    any = true;
+    const int rc = kill(pid, SIGKILL);
+    logf("closing %s pid %d: %s", name, pid, rc == 0 ? "ok" : strerror(errno));
+  }
+  if (!any)
+    return;
+  for (int i = 0; i < 100; ++i) {
+    bool left = false;
+    for (const char *name : kHelpers)
+      if (onion_find_pid(name) > 0)
+        left = true;
+    if (!left) {
+      logf("browser helpers closed after %d ms", i * 50);
+      usleep(500 * 1000);
+      return;
+    }
+    usleep(50 * 1000);
+  }
+  logf("browser helpers still running after 5 s");
+}
+
 /* stop when another HEN's module would share ShellUI with ours */
 bool refuse_foreign(const char *when) {
   const char *other = foreign_payload();
@@ -565,7 +632,7 @@ void log_processes() {
 int inject(pid_t shellui) {
   logf("ShellUI pid %d up for %ld s; injecting", shellui, shellui_age(shellui));
   if (ZT_DIAG)
-    logf("ShellUI pid %d before: %s", shellui, shellui_threads(shellui).c_str());
+    log_processes();
   const long long t0 = now_ms();
   const bool ok = Inject_Toolbox((int)shellui, zt_shellui_elf_start);
   logf("inject into SceShellUI pid %d: %s (%lld ms)", shellui, ok ? "ok" : "FAILED",
@@ -605,6 +672,14 @@ int main() {
   if (!replace_running_module()) {
     notify("ZhiThemes: an older theme (OnionHEN) is active.\n"
            "Reboot without it, then send ZhiThemes again.");
+    return 1;
+  }
+  if (!wait_browser_closed("start"))
+    return 0;
+  close_browser_helpers();
+  shellui = onion_find_pid("SceShellUI"); /* it may have restarted meanwhile */
+  if (shellui <= 0) {
+    notify("ZhiThemes: SceShellUI not found");
     return 1;
   }
   if (!wait_shellui_started(shellui)) {
@@ -687,6 +762,22 @@ int main() {
     }
     if (refuse_foreign("restart"))
       return 0;
+    if (!wait_browser_closed("restart"))
+      return 0;
+    close_browser_helpers();
+    /* a ShellUI restart while the browser was open is not ours: no safe
+       mode count, just let the new one start first */
+    const pid_t after = onion_find_pid("SceShellUI");
+    if (after != shellui) {
+      logf("SceShellUI changed %d -> %d while waiting for the browser", shellui, after);
+      shellui = after;
+      last_restart = 0;
+      if (shellui <= 0)
+        continue;
+      sleep(inject_delay());
+      if (onion_find_pid("SceShellUI") != shellui)
+        continue;
+    }
     if (!wait_shellui_started(shellui))
       continue;
     (void)inject(shellui);
