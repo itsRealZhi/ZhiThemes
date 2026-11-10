@@ -85,9 +85,22 @@ def options():
     save('options', m)
 
 
+def bolt():
+    """the charging bolt (controller battery, padInfoBattery 'inside')"""
+    m = Image.new('L', (S, S), 0)
+    d = ImageDraw.Draw(m)
+    pts = [(0.56, 0.04), (0.22, 0.57), (0.47, 0.57), (0.38, 0.96), (0.78, 0.41), (0.53, 0.41), (0.70, 0.04)]
+    d.polygon([(x * S, y * S) for x, y in pts], fill=255)
+    save('bolt', m)
+
+
+if len(sys.argv) > 2 and sys.argv[2] == 'bolt':
+    bolt()
+    sys.exit(0)
 for n in ('cross', 'circle', 'square', 'triangle'):
     face(n)
 for n in ('l1', 'r1', 'l2', 'r2'):
     pill(n, n.upper())
 options()
+bolt()
 print('ok', FONT)

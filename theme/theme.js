@@ -172,6 +172,29 @@
     hideIconLabels: false,   /* hide the name under the top icons when selected (user name, "Search"...) (false) */
     searchIcon: '',          /* another symbol for search: a system icon name (e.g. 'trophy', 'controller_key_face_cross') or an image uploaded from the editor (.png); empty = stock ('') */
     settingsIcon: '',        /* another symbol for settings, like searchIcon ('') */
+    /* extra buttons in the top bar, left of search */
+    powerBtnOn: false,       /* Power button in the top bar: X opens Rest mode / Restart / Turn off (false) */
+    powerBtnIcon: '',        /* Power button symbol: system icon name or .png; empty = 'power' ('') */
+    powerBtnX: 0,            /* Power button, + = right (0) */
+    powerBtnY: 0,            /* Power button, + = down (0) */
+    powerBtnScale: 1,        /* Power button size: 1 = normal, 1.5 = bigger, 0.7 = smaller (1) */
+    powerBtnOpacity: 1,      /* Power button opacity (1) */
+    trophyBtnOn: false,      /* Trophies button in the top bar: X opens the Trophies app (false) */
+    trophyBtnIcon: '',       /* Trophies button symbol: system icon name or .png; empty = 'trophies' ('') */
+    trophyBtnX: 0,           /* Trophies button, + = right (0) */
+    trophyBtnY: 0,           /* Trophies button, + = down (0) */
+    trophyBtnScale: 1,       /* Trophies button size: 1 = normal, 1.5 = bigger, 0.7 = smaller (1) */
+    trophyBtnOpacity: 1,     /* Trophies button opacity (1) */
+    padInfoOn: false,        /* controller + battery in the top bar, only to see (false) */
+    padInfoIcon: '',         /* controller symbol: system icon name or .png; empty = 'ps5_wireless_controller' ('') */
+    padInfoBattery: 'both',  /* battery as 'both' (icon + %), 'icon', 'text' or 'inside' (the controller icon fills up) ('both') */
+    padInfoFontSize: 24,     /* battery % text size (24) */
+    padInfoColor: '',        /* controller + battery colour; empty = white ('') */
+    padInfoLowColor: '#ff5050', /* battery colour at 20% or less ('#ff5050') */
+    padInfoX: 0,             /* controller, + = right (0) */
+    padInfoY: 0,             /* controller, + = down (0) */
+    padInfoSize: 0,          /* controller icon size in px; 0 = the top icons' size (0) */
+    padInfoOpacity: 1,       /* controller opacity (1) */
     /* detached icons (experimental): the button leaves the top bar and is
        drawn somewhere else on the Home, where the controller reaches it the
        normal way */
@@ -1578,6 +1601,9 @@
     settings: ['iconsX', 'iconsY', 'clockGap', 'settingsX', 'settingsY'],
     profile: ['iconsX', 'iconsY', 'clockGap', 'profileX', 'profileY'],
     clock: ['iconsX', 'iconsY', 'clockX', 'clockY'],
+    powerBtn: ['iconsX', 'iconsY', 'clockGap', 'powerBtnX', 'powerBtnY', 'powerBtnScale'],
+    trophyBtn: ['iconsX', 'iconsY', 'clockGap', 'trophyBtnX', 'trophyBtnY', 'trophyBtnScale'],
+    padInfo: ['iconsX', 'iconsY', 'clockGap', 'padInfoX', 'padInfoY', 'padInfoSize', 'padInfoBattery'],
     homeTrophies: ['fakeTrophiesX', 'fakeTrophiesY', 'fakeTrophiesScale', 'fakeTrophiesFontSize'],
     deco1: ['deco1X', 'deco1Y', 'deco1Size'],
     deco2: ['deco2X', 'deco2Y', 'deco2Size'],
@@ -3310,9 +3336,17 @@
       else if (orig && typeof orig === 'object') orig.current = inst;
     });
   }
-  function topIcons(props) {
+  function topIcons(props, type) {
     /* other symbol: the props that Search / Settings give module 270 */
     if (props.testID === 'system-search' || props.testID === 'system-settings') {
+      /* the bar button itself, for the extra bar buttons */
+      /* (Settings too: a theme can hide Search, then it never draws) */
+      if (!T.sysBtn && type) {
+        T.sysBtn = type;
+        done('bar button (module 270, from ' + props.testID + ')');
+        var ls = T.sysBtnListeners || [];
+        setTimeout(function () { ls.forEach(function (f) { try { f(); } catch (e) {} }); }, 0);
+      }
       var preI = props.testID === 'system-search' ? 'search' : 'settings';
       var v = iconValue(THEME[preI + 'Icon']);
       if (v && 'iconId' in props) {
@@ -3403,6 +3437,284 @@
     }
     done('icons');
     if (changed.length) log('icons moved: ' + changed.join(', '));
+    /* the extra bar buttons go in front of Search, in the bar's own row */
+    if (barBtnsOn() && o.Search) {
+      if (replace(o, 'Search', barExtras(o.Search))) done('top bar buttons');
+      else log('top bar buttons: Search not replaceable');
+    }
+  }
+
+  /* ---- extra buttons in the top bar (powerBtnOn, trophyBtnOn, padInfoOn) ----
+     Drawn right before Search in the bar's row (the module's Search is
+     wrapped). Power and Trophies are the bar's own button (module 270, the
+     one Search uses: focus, name under it when selected, left / right with
+     the other icons) with another iconId. The controller is a plain View:
+     not focusable, the cursor goes past it. */
+  /* pstc = the Trophies app (rnps-trophy, AppSystem's uri table) */
+  var TROPHY_LINK = 'pstc:browse';
+  var POWER_ITEMS = [['rest', 'Enter Rest Mode'], ['restart', 'Restart PS5'], ['off', 'Turn Off PS5']];
+  function barBtnsOn() { return !!(THEME.powerBtnOn || THEME.trophyBtnOn || THEME.padInfoOn); }
+  function barExtras(SearchComp) {
+    var React = T.React;
+    return React.memo(function (props) {
+      return React.createElement(React.Fragment, null,
+        React.createElement(BarExtras, props),
+        React.createElement(SearchComp, props));
+    });
+  }
+  /* the Trophies app opener (useLink is a hook: its own component) */
+  function TrophyOpener() {
+    T.trophyOpen = T.useLink(TROPHY_LINK);
+    return null;
+  }
+  function powerMenuClose(ref) {
+    var m = ref && ref.current;
+    try { if (m && typeof m.close === 'function') m.close(); } catch (e) { log('power menu close: ' + e); }
+  }
+  function powerPick(ref, what) {
+    powerMenuClose(ref);
+    log('power menu: ' + what);
+    try { console.log('THEME-POWER ' + what); } catch (e) {}
+  }
+  function BarExtras(props) {
+    var React = T.React, rn = T.rn;
+    /* every hook first (a hook after a return unmounts the Home) */
+    var setTick = React.useState(0)[1];
+    var powerRef = React.useRef(null), menuRef = React.useRef(null);
+    var tgt = React.useState(null), target = tgt[0], setTarget = tgt[1];
+    /* the bar button (module 270) is known once Search or Settings has
+       drawn: drawn again then */
+    React.useEffect(function () {
+      var ls = T.sysBtnListeners = T.sysBtnListeners || [];
+      var f = function () { setTick(function (n) { return n + 1; }); };
+      ls.push(f);
+      if (T.sysBtn) f();
+      return function () { var i = ls.indexOf(f); if (i >= 0) ls.splice(i, 1); };
+    }, []);
+    React.useEffect(function () {
+      var h = nodeOf(powerRef.current);
+      if (h != null && h !== target) setTarget(h);
+    });
+    var Btn = T.sysBtn, out = [];
+    var place = function (key, pre, x, y, ref, child) {
+      var st = { left: x || 0, top: y || 0 }, sc = THEME[pre + 'Scale'], op = THEME[pre + 'Opacity'];
+      if (sc > 0 && sc !== 1) st.transform = [{ scale: sc }];
+      if (op >= 0 && op < 1) st.opacity = op;
+      var p = { key: key, collapsable: false, style: st };
+      if (ref) p.ref = ref;
+      if (THEME.measureScreen) withMeasure(pre, p);
+      return React.createElement(rn.View, p, child);
+    };
+    var button = function (pre, icon, title, onPress) {
+      var p = {};
+      for (var k in props) p[k] = props[k];
+      p.iconId = icon; p.iconIndex = 0; p.testID = 'zt-' + pre; p.title = title; p.onPress = onPress;
+      return React.createElement(Btn, p);
+    };
+    if (THEME.powerBtnOn && Btn) {
+      out.push(place('zt-bar-power', 'powerBtn', THEME.powerBtnX, THEME.powerBtnY, powerRef,
+        button('power', iconValue(THEME.powerBtnIcon) || 'power', 'Power', function () {
+          var m = menuRef.current;
+          if (!T.done['power menu ref']) done('power menu ref (' + (m ? Object.keys(m).concat(Object.keys(Object.getPrototypeOf(m) || {})).join(',').slice(0, 200) : 'none') + ')');
+          try { if (m && typeof m.open === 'function') m.open(); else log('power menu: no open()'); } catch (e) { log('power menu open: ' + e); }
+        })));
+      var ps = T.rnps;
+      if (ps && ps.OptionsMenuPS && ps.MenuListItemPS && ps.MenuListItemPS.Button) {
+        var items = POWER_ITEMS.map(function (it) {
+          return React.createElement(ps.MenuListItemPS.Button, { key: 'zt-power-' + it[0], disabled: false, label: it[1],
+            onPress: function () { powerPick(menuRef, it[0]); } });
+        });
+        /* no size in the row */
+        out.push(React.createElement(rn.View, { key: 'zt-bar-power-menu', pointerEvents: 'box-none',
+          style: { position: 'absolute', width: 0, height: 0 } },
+          React.createElement(ps.OptionsMenuPS, { ref: menuRef, contextItems: items, globalItems: [],
+            onRequestClose: function () { powerMenuClose(menuRef); }, targetComponent: target, __ztPower: true })));
+      } else if (!T.done['power menu: no OptionsMenuPS']) done('power menu: no OptionsMenuPS');
+    }
+    if (THEME.trophyBtnOn && Btn) {
+      if (T.useLink) out.push(React.createElement(TrophyOpener, { key: 'zt-bar-trophy-link' }));
+      out.push(place('zt-bar-trophy', 'trophyBtn', THEME.trophyBtnX, THEME.trophyBtnY, null,
+        button('trophy', iconValue(THEME.trophyBtnIcon) || 'trophies', 'Trophies', function () {
+          log('trophies button: ' + TROPHY_LINK + (typeof T.trophyOpen === 'function' ? '' : ' (no useLink)'));
+          try { if (typeof T.trophyOpen === 'function') T.trophyOpen(); } catch (e) { log('trophies button: ' + e); }
+        })));
+    }
+    if (THEME.padInfoOn)
+      out.push(place('zt-bar-pad', 'padInfo', THEME.padInfoX, THEME.padInfoY, null, React.createElement(PadInfo, null)));
+    if (out.length && !T.done['top bar buttons drawn']) done('top bar buttons drawn (' + out.length + (Btn ? '' : ', no bar button yet') + ')');
+    return out.length ? out : null;
+  }
+
+  /* the controller's battery: VshNMSystemShellUIPeripheralModule (the Home's
+     native peripheral module) with the user's id; the answer is looked
+     through for a battery number and a charging flag (field names not known
+     yet: the first answers go to the log) */
+  var padLogs = 0;
+  function padModule() {
+    var nm = T.rn && T.rn.NativeModules;
+    return nm ? nm.VshNMSystemShellUIPeripheralModule : null;
+  }
+  function padFind(o, depth, out) {
+    if (!o || typeof o !== 'object' || depth > 5) return out;
+    /* the controller first (the list also has the microphone...) */
+    if (Array.isArray(o.results)) {
+      var pads = o.results.filter(function (r) { return r && /controller/i.test(String(r.type || '')); });
+      if (pads.length) return padFind(pads[0], depth + 1, out);
+    }
+    for (var k in o) {
+      var v = o[k];
+      /* battery: {state: 'charged'} (no number over Remote Play) or with a level */
+      if (/batt/i.test(k) && v && typeof v === 'object' && !Array.isArray(v)) {
+        for (var bk in v) {
+          if (typeof v[bk] === 'number' && out.level == null && /level|remain|percent|capacity|value|charge/i.test(bk)) { out.level = v[bk]; out.key = k + '.' + bk; }
+          else if (typeof v[bk] === 'string' && out.state == null && /state|status/i.test(bk)) out.state = v[bk];
+          else if (typeof v[bk] === 'boolean' && /charg/i.test(bk) && out.charging == null) out.charging = v[bk];
+        }
+        continue;
+      }
+      if (/batt/i.test(k) && /charg/i.test(k) && out.charging == null && (typeof v === 'boolean' || typeof v === 'number')) out.charging = !!v;
+      else if (/batt/i.test(k) && typeof v === 'number' && out.level == null) { out.level = v; out.key = k; }
+      else if (/charg/i.test(k) && out.charging == null && (typeof v === 'boolean' || typeof v === 'number')) out.charging = !!v;
+      else if (v && typeof v === 'object') padFind(v, depth + 1, out);
+    }
+    return out;
+  }
+  function padPercent(f) {
+    if (f && typeof f.level !== 'number' && typeof f.state === 'string' && /charged|full/i.test(f.state)) return 100;
+    if (!f || typeof f.level !== 'number' || f.level < 0) return null;
+    var v = f.level;
+    /* 0..10 steps (libScePad) or 0..100 */
+    if (v <= 10 && !/percent|pct/i.test(f.key || '')) v = v * 10;
+    return Math.max(0, Math.min(100, Math.round(v)));
+  }
+  function padRead(cb) {
+    var m = padModule();
+    if (!m) {
+      if (!T.done['controller: no peripheral module']) done('controller: no peripheral module');
+      return cb(null);
+    }
+    if (!T.done['controller module']) done('controller module (' + Object.keys(m).join(',').slice(0, 400) + ')');
+    var uid = T.homeUserId;
+    var calls = [];
+    if (typeof uid === 'number') {
+      if (typeof m.GetUserAssignedPeripheralInfoList === 'function') calls.push(['assigned', function () { return m.GetUserAssignedPeripheralInfoList({ userId: uid }); }]);
+      if (typeof m.GetDisconnectablePeripheralInfoList === 'function') calls.push(['disconnectable', function () { return m.GetDisconnectablePeripheralInfoList({ userId: uid }); }]);
+    } else if (!T.done['controller: no user id yet']) done('controller: no user id yet');
+    var i = 0;
+    var next = function () {
+      if (i >= calls.length) return cb(null);
+      var c = calls[i++];
+      var got = function (r) {
+        if (typeof r === 'string') { try { r = JSON.parse(r); } catch (e) {} }
+        if (padLogs < 4) {
+          padLogs++;
+          var s = '';
+          try { s = JSON.stringify(r); } catch (e) { s = String(r); }
+          log('controller ' + c[0] + ': ' + String(s).slice(0, 700));
+        }
+        var f = padFind(r, 0, {});
+        var st = typeof f.state === 'string' ? f.state : '';
+        /* 'charged' = full (plugged in, not charging any more) */
+        var charging = f.charging != null ? !!f.charging : /charging/i.test(st);
+        /* a state without a number (e.g. 'charging'): icon only */
+        if (padPercent(f) == null && !st) return next();
+        cb({ pct: padPercent(f), charging: charging, raw: f.level != null ? f.level : st, key: f.key || 'state' });
+      };
+      try {
+        var r = c[1]();
+        if (r && typeof r.then === 'function') r.then(got, function (e) { log('controller ' + c[0] + ': ' + e); next(); });
+        else got(r);
+      } catch (e) { log('controller ' + c[0] + ': ' + e); next(); }
+    };
+    next();
+  }
+  function padBatteryIcon(b) {
+    if (b.pct == null) return b.charging ? 'battery_charging' : 'battery_unknown';
+    if (b.charging) return b.pct >= 100 ? 'battery_full_charged' : 'battery_charging';
+    return b.pct >= 67 ? 'battery_full' : b.pct >= 34 ? 'battery_half' : b.pct >= 10 ? 'battery_low' : 'battery_empty';
+  }
+  /* padInfoBattery 'inside': the battery is the controller icon itself,
+     filled from the bottom: 100% all white; >=75% 3/4; >=50% half; >=25%
+     1/4 yellow; below red (1/8). The empty part is the same icon, faint.
+     Charging: all white with a green bolt on top of it. */
+  var PAD_GREEN = '#3ad04a', PAD_YELLOW = '#ffd23f';
+  function padFill(bat) {
+    var white = THEME.padInfoColor || '#ffffff';
+    if (!bat) return { frac: 1, color: white, faint: false };
+    var p = bat.pct, f;
+    /* charging: the controller all white, the green bolt on top */
+    if (bat.charging) return { frac: 1, color: white, bolt: true };
+    if (p == null || p >= 100) f = { frac: 1, color: white };
+    else if (p >= 75) f = { frac: 0.75, color: white };
+    else if (p >= 50) f = { frac: 0.5, color: white };
+    else if (p >= 25) f = { frac: 0.25, color: PAD_YELLOW };
+    else f = { frac: 0.125, color: THEME.padInfoLowColor || '#ff5050' };
+    if (bat.charging) f.bolt = true;
+    return f;
+  }
+  function padBolt(React, rn, size) {
+    /* our white bolt (Assets/particles/btn_bolt.png), tinted green */
+    /* on top of the controller, in its middle */
+    var h = Math.round(size * 0.62), w = Math.round(h * 0.7);
+    return React.createElement(rn.Image, { key: 'bolt', resizeMode: 'contain',
+      source: { uri: 'file://' + ZT_ASSETS + 'particles/btn_bolt.png' },
+      style: { position: 'absolute', left: Math.round((size - w) / 2), top: Math.round((size - h) / 2) - Math.round(size * 0.04),
+               width: w, height: h, tintColor: PAD_GREEN } });
+  }
+  function padInside(React, rn, icon, size, bat) {
+    var f = padFill(bat), kids = [];
+    if (f.frac < 1)
+      kids.push(React.createElement(rn.View, { key: 'empty', style: { position: 'absolute', left: 0, top: 0, opacity: 0.3 } },
+        decoIcon(icon, size, THEME.padInfoColor || '#ffffff')));
+    var h = Math.round(size * f.frac);
+    kids.push(React.createElement(rn.View, { key: 'fill', style: { position: 'absolute', left: 0, bottom: 0, width: size, height: h, overflow: 'hidden' } },
+      React.createElement(rn.View, { style: { position: 'absolute', left: 0, bottom: 0, width: size, height: size } }, decoIcon(icon, size, f.color))));
+    if (f.bolt) kids.push(padBolt(React, rn, size));
+    return React.createElement(rn.View, { style: { width: size, height: size } }, kids);
+  }
+  function PadInfo() {
+    var React = T.React, rn = T.rn;
+    var st = React.useState(T.padBattery || null), bat = st[0], setBat = st[1];
+    React.useEffect(function () {
+      var live = true, last = '', early = 0, te = 0;
+      var read = function () {
+        padRead(function (b) {
+          if (!live) return;
+          /* nothing yet (user id not seen): again soon, a few times */
+          if (!b && early++ < 5) te = setTimeout(read, 3000);
+          var sig = b ? b.pct + '|' + b.charging : 'none';
+          if (sig !== last) {
+            last = sig;
+            log('controller battery: ' + (b ? (b.pct == null ? '?' : b.pct) + '%' + (b.charging ? ' charging' : '') + ' (' + b.key + ' = ' + b.raw + ')' : 'not found'));
+          }
+          T.padBattery = b;
+          setBat(b);
+        });
+      };
+      /* every 5 s: plugging the controller in shows up soon */
+      var t0 = setTimeout(read, 1500), t = setInterval(read, 5000);
+      return function () { live = false; clearTimeout(t0); clearTimeout(te); clearInterval(t); };
+    }, []);
+    var size = THEME.padInfoSize > 0 ? THEME.padInfoSize : THEME.iconSize > 0 ? THEME.iconSize : 38;
+    var col = THEME.padInfoColor || '#ffffff', mode = THEME.padInfoBattery || 'both';
+    var bcol = bat && bat.charging ? PAD_GREEN : bat && bat.pct != null && bat.pct <= 20 ? (THEME.padInfoLowColor || '#ff5050') : col;
+    var padIcon = THEME.padInfoIcon || 'ps5_wireless_controller';
+    if (mode === 'inside') {
+      if (!T.done['controller drawn']) done('controller drawn (battery inside)');
+      return React.createElement(rn.View, { pointerEvents: 'none',
+        style: { flexDirection: 'row', alignItems: 'center', height: 56, paddingLeft: 16, paddingRight: 16 } },
+        padInside(React, rn, padIcon, size, bat));
+    }
+    var kids = [React.createElement(rn.View, { key: 'pad' }, decoIcon(padIcon, size, THEME.padInfoColor || null))];
+    if (bat && mode !== 'text')
+      kids.push(React.createElement(rn.View, { key: 'bat', style: { marginLeft: 8 } }, decoIcon(padBatteryIcon(bat), Math.round(size * 0.8), bcol)));
+    if (bat && bat.pct != null && mode !== 'icon') {
+      var px = fontSize(THEME.padInfoFontSize || 24) || 24;
+      kids.push(React.createElement(rn.Text, { key: 'pct', style: { marginLeft: 6, fontSize: px, color: bcol } }, bat.pct + '%'));
+    }
+    if (!T.done['controller drawn']) done('controller drawn');
+    return React.createElement(rn.View, { pointerEvents: 'none',
+      style: { flexDirection: 'row', alignItems: 'center', height: 56, paddingLeft: 16, paddingRight: 16 } }, kids);
   }
 
   /* ---- PlayStation Store tile ----
@@ -5679,6 +5991,8 @@
   function optionsMenu(props) {
     if (!('contextItems' in props) || !('globalItems' in props) || !('targetComponent' in props) ||
         typeof props.onRequestClose !== 'function') return;
+    /* the Power button's own menu stays where it is */
+    if (props.__ztPower) return;
     if (!T.done['options menu']) done('options menu (' + Object.keys(props).join(', ') + ')');
     if (THEME.animButtons && Date.now() - (T.menuPulseAt || 0) > 1500) { T.menuPulseAt = Date.now(); pulseButton('options'); }
     if (THEME.menuMove) {
@@ -9666,13 +9980,16 @@
                 : typeof props.userName === 'string' ? props.userName
                 : typeof props.accessibilityLabel === 'string' ? props.accessibilityLabel : '';
         if (who) newUser(who, props.presence != null ? props.presence : props.onlineStatus);
+        /* the controller's battery is asked per user */
+        var uidN = typeof props.userId === 'number' ? props.userId : typeof props.userId === 'string' && /^\d+$/.test(props.userId) ? Number(props.userId) : null;
+        if (uidN != null && uidN > 0 && T.homeUserId !== uidN) T.homeUserId = uidN;
       }
       if (THEME.fontStyle && T.rn && type === T.rn.Text && props && typeof props === 'object') {
         props.style = [props.style, fontStyle(THEME.fontStyle)];
         if (!T.done['font style']) done('font style');
       }
       if (APP === 'home' && props && typeof props === 'object') {
-        topIcons(props);
+        topIcons(props, type);
         seeRow(props);
         favEmptyItem(props);
         hubLayer(props);
@@ -10289,6 +10606,8 @@
       }
       if (!T.IconPS && exp.IconPS && typeof exp.IconPS !== 'string') T.IconPS = exp.IconPS;
       if (!T.FocusLayer && exp.FocusLayerPS && typeof exp.FocusLayerPS !== 'string') T.FocusLayer = exp.FocusLayerPS;
+      /* the system menu parts (the Power button's menu) */
+      if (!T.rnps && exp.OptionsMenuPS && exp.MenuListItemPS && typeof exp.OptionsMenuPS !== 'string') { T.rnps = exp; done('system menu parts'); }
       if (!T.useLink && typeof exp.useLink === 'function') { T.useLink = exp.useLink; done('useLink'); }
       if ('SceneControl' in exp) hookBackground(exp);
       findReact(exp);

@@ -28,6 +28,7 @@ along with this program; see the file COPYING. If not, see
 #include "ps5/kernel.h"
 #include "zt_brand.hpp"
 #include "zt_log.hpp"
+#include "zt_power.hpp"
 #include "zt_stats.hpp"
 #include "theme_web.hpp"
 #include "toolbox_i18n.hpp"
@@ -341,6 +342,8 @@ bool resolve_native_symbols(pid_t pid) {
       LOG_ERROR("Failed to resolve sceSystemServiceLaunchApp");
   }
 
+  /* the top bar Power button (zt_power.cpp): looked up now, called later */
+  zt_power_resolve(get_module_handle(pid, "libSceSystemStateMgr.sprx"));
   zt_boot_fine("native: shellui util + system service");
   int reg = get_module_handle(pid, "libSceRegMgr.sprx");
   KERNEL_DLSYM(reg, sceRegMgrGetInt);

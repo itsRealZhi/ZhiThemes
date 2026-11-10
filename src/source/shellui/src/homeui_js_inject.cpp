@@ -7,6 +7,7 @@ Free Software Foundation; either version 3, or (at your option) any
 later version. See LICENSE and NOTICE.  */
 
 #include "homeui_js_inject.hpp"
+#include "zt_power.hpp"
 #include "zt_paths.hpp"
 
 #if SHELLUI_HOMEUI_JS_INJECT == 1
@@ -3428,6 +3429,11 @@ void ConsoleLog_Hook(MonoString *msg, int level, void *error, void *userarg) {
       }
       return;
     }
+    /* the top bar Power button's menu: rest | restart | off */
+    if (text.rfind("THEME-POWER ", 0) == 0) {
+      zt_power_action(text.c_str() + 12);
+      return;
+    }
     if (text.rfind("THEME-LIBRARY", 0) == 0) {
       zt_sys_video_library_ping();
       return;
@@ -3605,6 +3611,7 @@ void theme_tick() {
   tokens_refresh_tick();
   rename_tick();
   zt_native_tick();
+  zt_power_tick();
 }
 
 std::string theme_system_font(const char *sst_name) {

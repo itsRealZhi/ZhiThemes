@@ -3,6 +3,7 @@
  * Extracted from mono_utils.cpp for module locality.
  */
 
+#include <time.h>
 #include "hooked_funcs.hpp"
 #include "external_symbols.hpp"
 #include "defs.h"
@@ -406,7 +407,24 @@ void shellui_request_hub_reload(void) {
   g_hub_reload_pending.store(true, std::memory_order_release);
 }
 
+/* Reloads at least 4 s apart: a second Apply while the Home was still
+   mounting (two saves 1.3 s apart, editor dragging) killed the ShellUI.
+   A request inside the gap waits (only the last one counts). */
+static long long reload_now_ms(void) {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
 void shellui_poll_home_reload(void) {
+  static long long last_reload = 0;
+  if (!g_hub_reload_pending.load(std::memory_order_acquire) &&
+      !g_home_reload_pending.load(std::memory_order_acquire))
+    return;
+  const long long now = reload_now_ms();
+  if (last_reload && now - last_reload < 4000)
+    return;
+  last_reload = now;
   if (g_hub_reload_pending.exchange(false, std::memory_order_acq_rel)) {
     LOG_DEBUG("applying NPXS40033 game hub reload on UI thread");
     ReloadRNPSApp("NPXS40033");
