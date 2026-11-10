@@ -8,6 +8,7 @@ Alpha: made on firmware **9.60**; also seen working on **13.60** by a tester. Ot
 
 ### Home screen
 - **Tiles:** square 1:1 or vertical 2:3 covers; the focused tile can be vertical 2:3 or *Steam horizontal* 92:43 (like the Steam Deck). Size, gap, corners, shadow, reflection, how many games the row shows.
+- **Row effects:** tiles fade out near the left and right edges of the screen (adjustable length and lowest opacity); the focus can walk along the row like in an open folder, with the row only sliding in the middle; tiles leaving on the left can disappear and slide away, fully gone at a chosen x (e.g. the edge of a side bar).
 - **Custom pictures per game:** your own tiles in every format, game backgrounds and game logos, uploaded or found with the built-in **SteamGridDB** search (you need your own free API key). A cropper for every format.
 - **Animated tiles and backgrounds:** animated WebP / APNG / MP4 / WebM become a still picture plus an MP4 the PS5 plays on the focused tile, with optional in-between frames for smooth motion. The game's own music keeps playing.
 - **Focus frame:** colours, glow, rainbow, shape.

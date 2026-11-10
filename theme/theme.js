@@ -33,6 +33,18 @@
     rowGapBefore: 0,         /* extra space between the focused tile and the previous ones, px (0) */
     rowTileGap: 8,           /* space between the tiles of the row, px; the PS5 uses 8 (8) */
     animationSpeed: 1,       /* speed of the other Home animations: 1 normal, 0.5 slow, 2 fast (1) */
+    tileEdgeFade: false,        /* tiles fade out near the left and right edges of the screen (false) */
+    tileEdgeFadeLeft: 250,      /* length of the fade on the left, px; 0 = no fade on the left (250) */
+    tileEdgeFadeRight: 450,     /* length of the fade on the right, px; 0 = no fade on the right (450) */
+    tileEdgeFadeInset: 0,       /* px from the screen edges where a tile is already at the lowest opacity (0) */
+    tileEdgeFadeMin: 0,         /* opacity of a tile at the edge, 0-1 (0) */
+    tileEdgeFadeFocused: false, /* the focused tile fades too, if it is inside a fade (false) */
+    rowHideLeft: false,         /* a tile that leaves the row on the left disappears (also the Store left of the 1st game) (false) */
+    rowHideLeftMove: 250,       /* px it slides to the left while it disappears, e.g. off a side bar (250) */
+    rowHideLeftEdge: 0,         /* screen x where the leaving tile's left edge is already gone, e.g. the right edge of a side bar (0) */
+    rowWindow: false,           /* the focus walks along the row and the row only slides in the middle, like an open folder (false) */
+    rowWindowStart: 1,          /* tiles the focus walks right before the row starts to slide (1) */
+    rowWindowEnd: 2,            /* tiles the focus walks at the end of the row; 0 = the row slides to the last one (2) */
     /* --- tabs --- */
     tabsAlign: '',           /* tabs (with the group icons) aligned inside a box from 84 + tabsX, tabsWidth wide: 'left', 'center' (grows to both sides), 'right'; empty = stock ('') */
     tabsWidth: 1752,         /* width of that box; 1752 with tabsX 0 = the whole bar, so 'center' is the middle of the screen (1752) */
@@ -2326,6 +2338,184 @@
     }
   }
 
+  /* ---- tiles fade out near the screen edges (tileEdgeFade) ----
+     Carousel module 596, createAnimatedStyles: positionN = translateX of
+     item N, scroll = translateX of the whole strand = selectedValue
+     interpolated to -index·(itemSize + itemMargin). Item N's opacity is that
+     same scroll value interpolated again (native driver, like the row): at
+     each whole index j its screen x is known (focused tile at 172 + rowX),
+     the native interpolation is linear in between. */
+  function edgeFadeOpacity(left, width) {
+    var c = left + width / 2, inset = Number(THEME.tileEdgeFadeInset) || 0;
+    var min = Math.min(1, Math.max(0, Number(THEME.tileEdgeFadeMin) || 0));
+    var L = Number(THEME.tileEdgeFadeLeft) || 0, R = Number(THEME.tileEdgeFadeRight) || 0, t = 1;
+    if (L > 0) t = Math.min(t, (c - inset) / L);
+    if (R > 0) t = Math.min(t, (1920 - inset - c) / R);
+    t = Math.min(1, Math.max(0, t));
+    return min + (1 - min) * t * t * (3 - 2 * t);
+  }
+  /* screen [left, width] of the tile d places from the focused one */
+  function edgeFadeBox(d) {
+    var base = 172 + (THEME.rowX || 0), gap = tileGap(), W = THEME.tileSize, P = W + gap;
+    if (d === 0) return [base + (THEME.focusX || 0), THEME.focusSize + shapeExtra()];
+    /* stock: next tile at 357 (172 + 168 + 17), Store right edge at 156 */
+    if (d > 0) return [base + THEME.focusSize + shapeExtra() + gap + 9 + (THEME.rowGapAfter || 0) + (d - 1) * P, W];
+    return [base - 2 * gap - (THEME.rowGapBefore || 0) - W + (d + 1) * P, W];
+  }
+  /* the strand's scroll style (translateX of the whole row) */
+  function strandScroll(s) {
+    var scroll = s.scroll;
+    if (!scroll || !Array.isArray(scroll.transform))
+      Object.keys(s).forEach(function (k) {
+        var v = s[k];
+        if (!scroll && !/^(position|selected)\d+$/.test(k) && v && Array.isArray(v.transform) && v.transform[0] &&
+            v.transform[0].translateX && typeof v.transform[0].translateX.interpolate === 'function') scroll = v;
+      });
+    var sx = scroll && Array.isArray(scroll.transform) && scroll.transform[0] ? scroll.transform[0].translateX : null;
+    return sx && typeof sx.interpolate === 'function' ? { style: scroll, x: sx } : null;
+  }
+  function animNodes() {
+    var A = T.rn && T.rn.Animated;
+    return A && typeof A.add === 'function' && typeof A.multiply === 'function' && typeof A.Value === 'function' ? A : null;
+  }
+  function edgeFade(s) {
+    var sc = strandScroll(s), n = 0, A = animNodes();
+    if (!sc) { log('edge fade: no scroll style (' + Object.keys(s).length + ' keys)'); return; }
+    var M = 0;
+    while (s['position' + M]) M++;
+    var P = THEME.tileSize + tileGap();
+    if (M < 2 || !(P > 0)) return;
+    /* each item's place in the row: positionN (index·P, an Animated value of
+       the strand's pool: an item keeps its pool slot when it changes place)
+       + scroll (−first on screen·P); 0 = where the focused tile stands */
+    var win = T.rowWinBy && T.rowWinBy.get(sc.style), walk = win ? win.L + win.E : 0;
+    var ks = [];
+    for (var k = -M; k <= M; k++) ks.push(k);
+    var hideLeft = !!THEME.rowHideLeft, fade = !!THEME.tileEdgeFade;
+    var push = Math.max(0, Math.min(1500, Number(THEME.rowHideLeftMove) || 0));
+    var out = ks.map(function (k) {
+      /* rowHideLeft: a tile that leaves the row's first place on the left
+         goes away (place -1 = gone, linear in between) */
+      if (hideLeft && k < 0) return 0;
+      if (!fade) return 1;
+      /* with rowWindow the focused tile can be in the first L + E places */
+      if (!THEME.tileEdgeFadeFocused && k >= 0 && k <= walk) return 1;
+      var b = edgeFadeBox(k);
+      return Math.round(edgeFadeOpacity(b[0], b[1]) * 1000) / 1000;
+    });
+    /* rowHideLeftEdge: the leaving tile is gone when its left edge reaches
+       that x. Its left edge at rel r (−P..0) = 172 + rowX + r·(1 + move/P) */
+    var inR = ks.map(function (k) { return k * P; }), outR = out.slice();
+    if (hideLeft) {
+      var gone = ((Number(THEME.rowHideLeftEdge) || 0) - (172 + (THEME.rowX || 0))) / (1 + push / P);
+      gone = Math.max(-P + 1, Math.min(-1, Math.round(gone)));
+      var at = ks.indexOf(0);
+      inR.splice(at, 0, gone);
+      outR.splice(at, 0, 0);
+    }
+    for (var N = 0; N < M; N++) {
+      var st = s['position' + N];
+      if (!st || typeof st !== 'object') continue;
+      var px = Array.isArray(st.transform) && st.transform[0] ? st.transform[0].translateX : null;
+      if (A && px != null) {
+        var rel = A.add(px, sc.x);
+        st.opacity = rel.interpolate({ inputRange: inR, outputRange: outR, extrapolate: 'clamp' });
+        /* ...and slides away to the left while it goes (off the side bar) */
+        if (hideLeft && push > 0)
+          st.transform = [st.transform[0], { translateX: rel.interpolate({ inputRange: [-P, 0], outputRange: [-push, 0],
+                                                                           extrapolate: 'clamp' }) }]
+                           .concat(st.transform.slice(1));
+      } else {
+        /* no Animated.add: pool slot N taken as the index */
+        var input = [];
+        for (var j = M - 1; j >= 0; j--) input.push(-j * P);
+        st.opacity = sc.x.interpolate({ inputRange: input, extrapolate: 'clamp', outputRange: input.map(function (x) {
+          return out[ks.indexOf(Math.max(-M, Math.min(M, N - Math.round(-x / P))))];
+        }) });
+      }
+      n++;
+    }
+    if (n && fade) done('edge fade ' + n + ' tiles (L ' + THEME.tileEdgeFadeLeft + ' R ' + THEME.tileEdgeFadeRight + ')');
+    if (n && hideLeft) done('tiles leave on the left (' + n + ' tiles, ' + (A ? push + ' px, gone at x ' + (Number(THEME.rowHideLeftEdge) || 0) : 'fade only, no Animated.add') + ')');
+  }
+
+  /* ---- rowWindow: the focus walks, the row slides only in the middle ----
+     Stock: scroll = −s·P (s = selectedValue, the focused index), so the
+     focused tile always stands at 172. Here scroll = −first(s)·P:
+       s ≤ a          first = s       (a = 1: the Store left of the 1st game)
+       a ≤ s ≤ a+L    first = a       (the focus walks L tiles right)
+       s ≥ a+L        first = s − L   (the row slides)
+       and never more than firstMax = first(n−1−E) (the focus walks the
+       last E tiles). All native nodes on the strand's own value (interpolate
+       + add + multiply); firstMax is an Animated.Value set when the row's
+       item count (children of the scroll View) is known. */
+  function winG(w, s) { return s <= w.a ? s : s <= w.a + w.L ? w.a : s - w.L; }
+  function winFirstMax(w, n) { return w.E > 0 ? Math.max(0, winG(w, n - 1 - w.E)) : 1e5; }
+  function rowWindow(s) {
+    var sc = strandScroll(s), A = animNodes();
+    if (!sc || !A) { log('row window: ' + (sc ? 'no Animated.add/multiply' : 'no scroll style')); return; }
+    if (T.rowWinBy && T.rowWinBy.has(sc.style)) return;
+    var P = THEME.tileSize + tileGap();
+    var L = Math.max(0, Math.min(10, Math.round(Number(THEME.rowWindowStart) || 0)));
+    var E = Math.max(0, Math.min(10, Math.round(Number(THEME.rowWindowEnd) || 0)));
+    if (!(P > 0) || (!L && !E)) return;
+    var a = THEME.hideStore ? 0 : 1, x0 = sc.x, g = x0;
+    if (L) {
+      var inR = [-(a + L + 1) * P, -(a + L) * P, -a * P], outR = [-(a + 1) * P, -a * P, -a * P];
+      if (a) { inR.push(0); outR.push(0); }
+      g = x0.interpolate({ inputRange: inR, outputRange: outR, extrapolate: 'extend' });
+    }
+    var w = { a: a, L: L, E: E, P: P, n: -1, fmax: null, sw: g };
+    if (E) {
+      /* scroll = max(g, −firstMax·P) = relu(g + firstMax·P) − firstMax·P */
+      w.fmax = new A.Value(1e5 * P);
+      var relu = A.add(g, w.fmax).interpolate({ inputRange: [0, 1], outputRange: [0, 1],
+                                                extrapolateLeft: 'clamp', extrapolateRight: 'extend' });
+      w.sw = A.add(relu, A.multiply(w.fmax, -1));
+    }
+    /* how far the focused tile stands right of its stock place (tile name) */
+    w.shift = A.add(w.sw, A.multiply(x0, -1));
+    sc.style.transform = [{ translateX: w.sw }].concat(sc.style.transform.slice(1));
+    T.rowWinBy = T.rowWinBy || new WeakMap();
+    T.rowWinBy.set(sc.style, w);
+    T.rowWinNew = w;
+    done('row window (walk ' + L + ' at the start, ' + E + ' at the end, step ' + P + ' px)');
+  }
+  /* jsx: the scroll View of a strand; its children = one per item */
+  function rowWindowCount(props) {
+    var w = T.rowWinBy && props.style && typeof props.style === 'object' ? T.rowWinBy.get(props.style) : null;
+    if (!w || !Array.isArray(props.children)) return;
+    T.rowWin = w;
+    var n = props.children.filter(function (c) { return c != null; }).length;
+    if (n === w.n) return;
+    w.n = n;
+    var fm = winFirstMax(w, n);
+    if (w.fmax) w.fmax.setValue(fm * w.P);
+    log('row window: ' + n + ' items, the row slides up to item ' + (fm >= 1e5 ? 'the last' : fm));
+  }
+  /* the focused index s -> px the focused tile stands right of 172 */
+  function rowWindowShiftPx(s) {
+    var w = T.rowWin;
+    if (!w || typeof s !== 'number' || s < 0) return 0;
+    var first = Math.min(winG(w, s), w.n > 0 ? winFirstMax(w, w.n) : 1e5);
+    return (s - first) * w.P;
+  }
+  /* the hub view's small tile: minimizeExperienceN moves it from 172; it is
+     moved back by the shift. A value of its own set from the row's onFocus,
+     so the row's native nodes and the hub animation never share a node */
+  function rowWindowHubValue() {
+    var A = animNodes();
+    if (!A) return null;
+    if (!T.rowWinHub) T.rowWinHub = new A.Value(0);
+    return T.rowWinHub;
+  }
+  function rowWindowFocus(index) {
+    var v = T.rowWinHub;
+    if (!v || !THEME.rowWindow) return;
+    var Sm = THEME.focusSize / THEME.tileSize;
+    try { v.setValue(-rowWindowShiftPx(index) / (Sm > 0 ? Sm : 1)); } catch (e) {}
+  }
+
   /* ---- StyleSheet.create: styles recognised by their keys ---- */
   /* style key -> visual editor element (filled by styles) */
   var toMark = [];
@@ -2575,6 +2765,27 @@
         s[ke].transform = tre;
       }
       done('space around the focus');
+    }
+    if (APP === 'home' && THEME.rowWindow && s.selected0 && s.position0) {
+      try { rowWindow(s); } catch (e) { T.errors++; log('row window: ' + e); }
+    }
+    if (APP === 'home' && (THEME.tileEdgeFade || THEME.rowHideLeft) && s.selected0 && s.position0) {
+      try { edgeFade(s); } catch (e) { T.errors++; log('edge fade: ' + e); }
+    }
+    /* rowWindow: the hub view's small tile goes back to the stock place */
+    if (APP === 'home' && THEME.rowWindow && s.minimizeExperience0) {
+      var hv = rowWindowHubValue(), mw = T.minScale, An = animNodes(), nw = 0;
+      for (var kw in s) {
+        if (!hv || !(mw > 0 && mw < 1) || !/^minimizeExperience\d+$/.test(kw) || !s[kw] || !Array.isArray(s[kw].transform)) continue;
+        var trw = s[kw].transform.slice(), atw = -1;
+        trw.forEach(function (t, i) { if (t && t.scale != null && typeof t.scale.interpolate === 'function') atw = i; });
+        if (atw < 0) continue;
+        var kk = trw[atw].scale.interpolate({ inputRange: [mw, 1], outputRange: [1, 0], extrapolate: 'clamp' });
+        trw.splice(atw, 0, { translateX: An.multiply(hv, kk) });
+        s[kw].transform = trw;
+        nw++;
+      }
+      if (nw) done('row window: small tile of the hub view back in place');
     }
     if (s.experienceSwitcherWrapper && s.spaceSwitcherWrapper) {
       s.experienceSwitcherWrapper.marginTop = THEME.rowOffsetY;
@@ -4924,6 +5135,8 @@
         try {
           var id = a && a.item && a.item.id;
           if (typeof id === 'string') T.lastSelId = id;
+          /* rowWindow: the hub view's small tile follows where the focus stands */
+          if (THEME.rowWindow && a && typeof a.index === 'number') rowWindowFocus(a.index);
           /* the focused tile's shape follows the focus */
           if (typeof id === 'string' && focusSlotUsed()) shapeFocusSet(id);
           /* the game logo follows the focus (before the name: the
@@ -9382,6 +9595,22 @@
           props.children = [refl].concat(Array.isArray(chr) ? chr : chr == null ? [] : [chr]);
         }
       }
+      if (APP === 'home' && THEME.rowWindow && T.rowWinBy && props && typeof props === 'object' &&
+          props.style && typeof props.style === 'object' && Array.isArray(props.children)) {
+        try { rowWindowCount(props); } catch (e) { T.errors++; log('row window count: ' + e); }
+      }
+      /* rowWindow: the tile name stands right of the stock focused tile; it
+         follows the focused tile (same native value as the row). A child of
+         title-container, never the View itself */
+      if (APP === 'home' && THEME.rowWindow && props && typeof props === 'object' && props.testID === 'title-container' &&
+          (T.rowWin || T.rowWinNew) && T.rn && T.rn.Animated) {
+        var rw = T.rowWin || T.rowWinNew;
+        if (!T.done['row window: tile name']) done('row window: tile name');
+        props.children = fn(T.rn.Animated.View, {
+          style: { flexDirection: 'row', alignItems: 'center', transform: [{ translateX: rw.shift }] },
+          children: props.children
+        }, 'theme-name-window');
+      }
       /* (clock shadow removed : duplicating or wrapping the PS5 Clock,
          which updates itself, took ShellUI down) */
       /* (textShadow* on every Text was removed: the PS5 does not draw the
@@ -9484,7 +9713,7 @@
            row is not remounted) whose opacity follows the Home lift only
            while the Game Library tile is selected. */
         /* the fake title follows the row's onFocus (also without folders) */
-        if (!(THEME.folders || DEBUG.on) && (titleMode() === 'fake' || focusSlotUsed() || logoOn()) && props.loadComponents &&
+        if (!(THEME.folders || DEBUG.on) && (titleMode() === 'fake' || focusSlotUsed() || logoOn() || THEME.rowWindow) && props.loadComponents &&
             'selected' in props && props.spaceId != null)
           folderRowProps(props);
         if (THEME.folders || DEBUG.on) {

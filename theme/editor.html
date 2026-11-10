@@ -921,6 +921,18 @@
     tileReflectionWaves: ['Reflection ripples', 'Lake ripples: sideways movement in px; 0 = still'],
     tileReflectionWaveSpeed: ['Ripple speed', 'Seconds per ripple'],
     tileReflectionFlip: ['Reflection flip', 'How the image is turned upside down (try another if the reflection is not upside down)'],
+    tileEdgeFade: ['Fade at the edges', 'Tiles fade out as they get near the left or right edge of the screen'],
+    tileEdgeFadeLeft: ['Left fade length', 'How far from the left edge the fade starts, px; 0 = no fade on the left'],
+    tileEdgeFadeRight: ['Right fade length', 'How far from the right edge the fade starts, px; 0 = no fade on the right'],
+    tileEdgeFadeInset: ['Fade edge inset', 'Px from the screen edges where a tile is already at its lowest opacity'],
+    tileEdgeFadeMin: ['Opacity at the edge', 'Opacity of a tile right at the edge, 0–1 (0 = invisible)'],
+    tileEdgeFadeFocused: ['Fade the focused tile', 'The focused tile fades too, if it is inside a fade'],
+    rowHideLeft: ['Hide tiles on the left', 'A tile that leaves the row on the left disappears (also the Store left of the first game)'],
+    rowHideLeftMove: ['Slide away', 'Px the tile slides to the left while it disappears, e.g. off a side bar'],
+    rowHideLeftEdge: ['Gone at x', 'Screen x where the leaving tile is already invisible (its left edge), e.g. the right edge of a side bar; 0 = the screen edge'],
+    rowWindow: ['Focus walks the row', 'Like an open folder: the focus walks along the tiles and the row only slides in the middle'],
+    rowWindowStart: ['Walk at the start', 'Tiles the focus walks right before the row starts to slide'],
+    rowWindowEnd: ['Walk at the end', 'Tiles the focus walks at the end of the row; 0 = the row slides to the last one'],
 
     user: ['Show user name', 'Draws the signed-in user name'],
     userX: ['User X', 'Distance from the left'],
@@ -1261,6 +1273,12 @@
     else if (key === 'tileReflectionWaves') r = [0, 20, 0.5];
     else if (key === 'rowMaxGames') r = [1, 12, 1];
     else if (key === 'tileReflectionWaveSpeed') r = [0.5, 10, 0.5];
+    else if (key === 'tileEdgeFadeLeft' || key === 'tileEdgeFadeRight') r = [0, 1200, 10];
+    else if (key === 'tileEdgeFadeInset') r = [-300, 600, 5];
+    else if (key === 'tileEdgeFadeMin') r = [0, 1, 0.05];
+    else if (key === 'rowWindowStart' || key === 'rowWindowEnd') r = [0, 10, 1];
+    else if (key === 'rowHideLeftMove') r = [0, 1000, 10];
+    else if (key === 'rowHideLeftEdge') r = [0, 600, 5];
     else if (key === 'focusThickness') r = [0, 60, 1];
     else if (key === 'focusGap') r = [-30, 60, 1];
     else if (key === 'focusIntensity') r = [0.1, 4, 0.1];
@@ -4543,7 +4561,7 @@
       dy: [['rowOffsetY', 1]], dh: [['focusSize', 1]], mx: 'rowX', my: 'rowOffsetY',
       extra: ['tileSize', 'focusSize', 'rowTileGap', 'tileVertical', 'tileCorners', 'rowSpeed', 'rowBounce', 'rowBounceStrength', 'rowMaxGames', 'animationSpeed',
               'tileShadow', 'tileShadowColor', 'tileShadowOpacity', 'tileReflection', 'tileReflectionHeight',
-              'tileReflectionGap', 'tileReflectionWaves', 'textShadow', 'textShadowColor',
+              'tileReflectionGap', 'tileReflectionWaves', 'tileEdgeFade', 'tileEdgeFadeLeft', 'tileEdgeFadeRight', 'tileEdgeFadeMin', 'textShadow', 'textShadowColor',
               'hideStore', 'hideAllApps', 'hideGallery', 'hideRowInLibrary', 'libraryHideGames', 'hideTiles', 'downloadBarColor', 'downloadBarBgColor', 'fixDetails'] },
     { id: 'focusTile', name: 'Focused tile', app: 'home', parent: 'row', guess: [172, 126, 168, 168],
       mx: 'focusX', my: 'focusY', grow: 'focusSize',
@@ -4642,10 +4660,11 @@
     clock: ['#Look', 'clockFontSize', 'clockFontStyle', 'clockColor', 'clockGap', '#All top icons', 'iconsX', 'iconsY', 'topBarOpacity'],
     row: ['#Size & place', 'tileSize', 'focusSize', 'rowTileGap', 'rowGapBefore', 'rowGapAfter', 'tileCorners', 'tileVertical',
           'rowMaxGames', 'hubOffset', 'libraryPeekDown', 'fixDetails',
-          '#Movement', 'rowSpeed', 'rowBounce', 'rowBounceStrength', 'rowFastRepeat', 'rowRepeatWindow', 'animationSpeed',
+          '#Movement', 'rowWindow', 'rowWindowStart', 'rowWindowEnd', 'rowHideLeft', 'rowHideLeftMove', 'rowHideLeftEdge', 'rowSpeed','rowBounce', 'rowBounceStrength', 'rowFastRepeat', 'rowRepeatWindow', 'animationSpeed',
           '#Shadow', 'tileShadow', 'tileShadowX', 'tileShadowY', 'tileShadowColor', 'tileShadowOpacity',
           '#Reflection', 'tileReflection', 'tileReflectionHeight', 'tileReflectionGap', 'tileReflectionSteps', 'tileReflectionWaves',
           'tileReflectionWaveSpeed', 'tileReflectionFlip',
+          '#Edge fade', 'tileEdgeFade', 'tileEdgeFadeLeft', 'tileEdgeFadeRight', 'tileEdgeFadeInset', 'tileEdgeFadeMin', 'tileEdgeFadeFocused',
           '#Pictures', 'customTilesOn', 'tileAnimOn',
           '#Items', 'hideStore', 'hideAllApps', 'hideGallery', 'hideRowInLibrary', 'libraryHideGames', 'hideTiles',
           '#Download bar', 'downloadBarColor', 'downloadBarBgColor'],
@@ -4834,6 +4853,16 @@
   function shapeExtraPx(c) {
     var fr = focusRatio(c);
     return fr ? Math.round(Math.round(num(c.focusSize) * tileRatio(c)) / fr) - num(c.focusSize) : 0;
+  }
+  /* tileEdgeFade: same curve as theme.js (edgeFadeOpacity), by the tile's centre */
+  function edgeFadeOp(c, left, width) {
+    if (c.tileEdgeFade !== true && c.tileEdgeFade !== 'true') return 1;
+    var x = left + width / 2, inset = num(c.tileEdgeFadeInset), min = Math.min(1, Math.max(0, num(c.tileEdgeFadeMin)));
+    var L = num(c.tileEdgeFadeLeft), R = num(c.tileEdgeFadeRight), t = 1;
+    if (L > 0) t = Math.min(t, (x - inset) / L);
+    if (R > 0) t = Math.min(t, (1920 - inset - x) / R);
+    t = Math.min(1, Math.max(0, t));
+    return Math.round((min + (1 - min) * t * t * (3 - 2 * t)) * 1000) / 1000;
   }
   function tileLayout(c) {
     var m = V.layout['home:tiles'], src = STOCK_TILES, measured = false;
@@ -5196,10 +5225,13 @@
           'px;color:' + html(c.clockColor || '#fff') + '">12:34</div>';
     } else if (e.id === 'row') {
       var r = num(c.tileCorners);
-      tileLayout(c).tiles.forEach(function (t, i) {
+      var tlay = tileLayout(c), hideL = c.rowHideLeft === true || c.rowHideLeft === 'true';
+      tlay.tiles.forEach(function (t, i) {
         if (t.focus || t.b[0] > 1920 || t.b[0] + t.b[2] < 0) return;
+        /* rowHideLeft: the tiles left of the focused one are gone */
+        if (hideL && tlay.focus && t.b[0] < tlay.focus.b[0]) return;
         s += '<div style="position:absolute;left:' + (t.b[0] - b[0]) + 'px;top:' + (t.b[1] - b[1]) + 'px;width:' + t.b[2] + 'px;height:' + t.b[3] +
-             'px;border-radius:' + r + 'px;background:' + (t.store ? '#0b5fd6' : 'linear-gradient(135deg,hsl(' + (i * 47 % 360) + ',45%,38%),hsl(' + (i * 47 % 360 + 40) + ',45%,22%))') +
+             'px;opacity:' + edgeFadeOp(c, t.b[0], t.b[2]) + ';border-radius:' + r + 'px;background:' + (t.store ? '#0b5fd6' : 'linear-gradient(135deg,hsl(' + (i * 47 % 360) + ',45%,38%),hsl(' + (i * 47 % 360 + 40) + ',45%,22%))') +
              ';font-size:18px;display:grid;place-items:center">' + (t.store ? 'Store' : '') + '</div>';
       });
     } else if (e.id === 'focusTile') {
@@ -5501,7 +5533,8 @@
     profile: ['iconSize', 'hideIconLabels', 'avatarOn', 'avatar'],
     clock: ['clockFontSize', 'clockColor'],
     ownClock: ['ownClockFontSize', 'ownClockColor', 'ownClock24h', 'ownClockDate'],
-    row: ['tileSize', 'focusSize', 'rowTileGap', 'tileCorners', 'tileVertical', 'rowMaxGames'],
+    row: ['tileSize', 'focusSize', 'rowTileGap', 'tileCorners', 'tileVertical', 'rowMaxGames',
+          'tileEdgeFade', 'tileEdgeFadeLeft', 'tileEdgeFadeRight', 'tileEdgeFadeMin', 'rowWindow', 'rowWindowStart', 'rowWindowEnd', 'rowHideLeft', 'rowHideLeftMove', 'rowHideLeftEdge'],
     focusTile: ['focusSize', 'focusShape', 'hideFocus', 'focusLineColorOn', 'focusLineR', 'focusThickness', 'hideGlow'],
     tileName: ['titleMode', 'hideTileName', 'hidePS5Icon', 'tileNameColor', 'tileNameScale'],
     fakeTitle: ['titleMode', 'nameCopyFontSize', 'nameCopyColor', 'nameCopyAlign', 'nameCopyBgOn'],

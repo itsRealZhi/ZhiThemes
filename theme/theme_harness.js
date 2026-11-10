@@ -8,13 +8,37 @@ globalThis.setInterval = () => 0;               // the name request (THEME-ASK) 
 globalThis.__themeApp = process.env.THEME_APP || '?'; // ZhiThemes sets "home"/"hub"
 eval(fs.readFileSync(process.argv[2], 'utf8')); // like EvalScript
 
+// HARNESS_ANIM=1: Animated nodes that can be evaluated (__get), for the row window / edge fade
+const AN = (() => {
+  const val = (x) => (typeof x === 'number' ? x : x.__get());
+  const lin = (x, c) => {
+    const i = c.inputRange, o = c.outputRange, n = i.length;
+    const el = c.extrapolateLeft || c.extrapolate || 'extend', er = c.extrapolateRight || c.extrapolate || 'extend';
+    if (x < i[0] && el === 'clamp') return o[0];
+    if (x > i[n - 1] && er === 'clamp') return o[n - 1];
+    let k = 1;
+    while (k < n - 1 && x > i[k]) k++;
+    const a = i[k - 1], b = i[k];
+    return b === a ? o[k] : o[k - 1] + (o[k] - o[k - 1]) * (x - a) / (b - a);
+  };
+  const node = (get) => ({ __get: get, interpolate: (c) => node(() => lin(get(), c)) });
+  return {
+    Value: function (v) { let x = v; const n = node(() => x); n.setValue = (y) => { x = y; }; return n; },
+    add: (a, b) => node(() => val(a) + val(b)),
+    multiply: (a, b) => node(() => val(a) * val(b)),
+    get: val
+  };
+})();
+globalThis.__harnessAnim = AN;
+
 // ---- "bundle": minimal webpack runtime, calling the factories with .call(...) ----
 const modules = {
   // module 1: React Native (comes from rnps-ppr)
   1: function (module, exports) {
     module.exports = { AppRegistry: {}, StyleSheet: { create: (s) => s, flatten: (s) => Array.isArray(s) ? Object.assign({}, ...s.filter(Boolean)) : (s || {}) },
       View: 'View', Text: 'Text', ScrollView: 'RCTScrollView', IconPS: 'IconPS',
-      Animated: { spring: (v, c) => c },
+      Animated: process.env.HARNESS_ANIM ? { spring: (v, c) => c, View: 'Animated.View', Value: AN.Value, add: AN.add, multiply: AN.multiply }
+                                         : { spring: (v, c) => c },
       FontSizePS: { SizeSmall: 24, SizeNormal: 28, SizeLarge: 32, Size2X: 44, Size5X: 96 } };
   },
   // React (comes from rnps-ppr)
@@ -199,6 +223,54 @@ const modules = {
     // row carousel: selectedN gets the offset of the focused tile
     exports.carousel = req(1).StyleSheet.create({ position0: { transform: [{ translateX: 0 }] },
       selected0: { transform: [{ scale: { interpolate: (c) => ({ interp: c }) } }, { translateY: 4 }, { translateX: 0 }] } }).selected0;
+    // row carousel with the strand's scroll (tileEdgeFade: opacity of each positionN)
+    if (!process.env.HARNESS_ANIM) {
+      const fade = { scroll: { transform: [{ translateX: { interpolate: (c) => ({ interp: c }) } }] } };
+      for (let i = 0; i < 16; i++) {
+        fade['position' + i] = { transform: [{ translateX: i * 114 }] };
+        fade['selected' + i] = { transform: [{ scale: { interpolate: (c) => ({ interp: c }) } }, { translateY: 53 }, { translateX: 0 }] };
+      }
+      req(1).StyleSheet.create(fade);
+      if (fade.position0.opacity) exports.edgeFade = [0, 1, 2, 5, 10, 14, 15].map((i) =>
+        'item ' + i + ': ' + fade['position' + i].opacity.interp.outputRange.slice().reverse().join(' '));
+    } else {
+      // the strand with evaluable nodes: selectedValue -> scroll, positions = index·P
+      const src0 = fs.readFileSync(process.argv[2], 'utf8'), num0 = (k) => { const m = src0.match(new RegExp('\n    ' + k + ': (-?[0-9.]+)')); return m ? Number(m[1]) : undefined; };
+      const T0 = { tileSize: num0('tileSize'), rowTileGap: num0('rowTileGap') }, P = (T0.tileSize || 106) + (T0.rowTileGap == null ? 8 : T0.rowTileGap);
+      const M = 16, n = Number(process.env.HARNESS_ITEMS || 14), sel = new AN.Value(1);
+      const ins = [-1], outs = [-(T0.tileSize || 106) / 2];
+      for (let i = 0; i < M; i++) { ins.push(i); outs.push(-i * P); }
+      const st = { scroll: { transform: [{ translateX: sel.interpolate({ inputRange: ins, outputRange: outs }) }] } };
+      for (let i = 0; i < M; i++) {
+        st['position' + i] = { transform: [{ translateX: new AN.Value(i * P) }] };
+        st['selected' + i] = { transform: [{ scale: { interpolate: (c) => ({ interp: c }) } }, { translateY: 53 }, { translateX: 0 }] };
+      }
+      req(1).StyleSheet.create(st);
+      // the scroll View renders one child per item
+      req(2).jsx('Animated.View', { style: st.scroll, children: Array.from({ length: n }, (_, i) => ({ key: 'i' + i })) });
+      // a pool slot that changed place: slot 3 holds the item at index 6
+      st.position3.transform[0].translateX.setValue(6 * P); st.position6.transform[0].translateX.setValue(3 * P);
+      const rows = [];
+      const sels = process.env.HARNESS_FRAC ? [2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4] : Array.from({ length: n }, (_, i) => i);
+      for (const s of sels) {
+        sel.setValue(s);
+        const scroll = AN.get(st.scroll.transform[0].translateX);
+        const focusX = 172 + s * P + scroll; // where the focused item stands
+        const op = [];
+        for (let k = 0; k < n; k++) {
+          const slot = k === 3 ? 6 : k === 6 ? 3 : k;
+          const ps = st['position' + slot], tr = ps.transform[1] && ps.transform[1].translateX;
+          op.push((ps.opacity ? AN.get(ps.opacity).toFixed(2) : '-') + (tr ? '/' + Math.round(AN.get(tr)) : ''));
+        }
+        if (process.env.HARNESS_FRAC) {
+          const p2 = st['position' + 2], x2 = 172 + AN.get(p2.transform[0].translateX) + scroll + (p2.transform[1] ? AN.get(p2.transform[1].translateX) : 0);
+          rows.push('sel ' + s + ': item 2 left x ' + Math.round(x2) + ' opacity ' + AN.get(p2.opacity).toFixed(2));
+          continue;
+        }
+        rows.push('sel ' + String(s).padStart(2) + ': focus x ' + Math.round(focusX) + ' slot ' + Math.round((focusX - 172) / P) + (op[0] !== '-' ? ' | op ' + op.join(' ') : ''));
+      }
+      exports.edgeFade = rows;
+    }
     // fake title: the name comes from the row's selectedItem in its data
     const rowRef = {};
     const strand = req(2).jsx('Strand', { ref: rowRef, selectedItem: 'B2', keyExtractor: (e) => e.id,
@@ -270,6 +342,7 @@ const out = {
   measured: entry.measured,
   tabsGroup: entry.tabsGroup,
   carousel: entry.carousel,
+  edgeFade: entry.edgeFade,
   gameName: entry.gameName, gameNameAfterFocus: entry.gameNameAfterFocus, hubFocus: entry.hubFocus, hubSections: entry.hubSections,
   spring: entry.spring, iconSize: entry.iconSize, trophy: entry.trophy, scroll: entry.scroll,
   hubMarginTop: entry.hub.props.marginTop,
