@@ -34,3 +34,5 @@ void zt_native_tick();
 void zt_sys_video_install(MonoImage *pui);
 void zt_sys_video_apply(const std::string &script);
 void zt_sys_video_tick();
+/* the Game / App Library is in front (theme.js THEME-LIBRARY) */
+void zt_sys_video_library_ping();

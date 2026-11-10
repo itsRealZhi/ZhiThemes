@@ -3428,6 +3428,10 @@ void ConsoleLog_Hook(MonoString *msg, int level, void *error, void *userarg) {
       }
       return;
     }
+    if (text.rfind("THEME-LIBRARY", 0) == 0) {
+      zt_sys_video_library_ping();
+      return;
+    }
     if (text.rfind("THEME-HUBFOCUS ", 0) == 0) {
       g_hub_focus.store(text.size() > 15 && text[15] == '1' ? 1 : 0);
       g_hub_focus_seq.fetch_add(1);

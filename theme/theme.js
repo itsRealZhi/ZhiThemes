@@ -4409,6 +4409,39 @@
     f.__ztWorm = true;
     props.onLayout = f;
   }
+  /* the boxes and the top bar background wait for the bar: the Home's
+     root (where they are drawn) shows before the bar, clock and icons, so
+     they appeared alone first. They fade in with the first tab's layout
+     (the bar is there), or after 4 s if no tab ever comes. */
+  function boxesShown() {
+    var A = T.rn && T.rn.Animated;
+    if (!A || !A.Value) return null;
+    if (!T.barOp) {
+      if (T.barShown) return null;
+      T.barOp = new A.Value(0);
+      setTimeout(function () { barShow('no tab after 4 s'); }, 4000);
+    }
+    return T.barOp;
+  }
+  function barShow(why) {
+    if (T.barShown || !T.barOp) return;
+    T.barShown = true;
+    try {
+      T.rn.Animated.timing(T.barOp, { toValue: 1, duration: 120, useNativeDriver: true }).start();
+    } catch (e) { try { T.barOp.setValue(1); } catch (e2) {} }
+    if (!T.done['boxes with the bar']) done('boxes with the bar (' + why + ')');
+  }
+  function barReveal(props) {
+    if (T.barShown || !T.barOp || APP !== 'home' || typeof props.name !== 'string' ||
+        props.name.indexOf('space-switcher-') !== 0 || props.focusable !== true)
+      return;
+    var own = props.onLayout;
+    props.onLayout = function (e) {
+      var l = e && e.nativeEvent && e.nativeEvent.layout;
+      if (l && l.width > 0) barShow('tab laid out');
+      if (typeof own === 'function') return own.apply(this, arguments);
+    };
+  }
   function tabWorm(props) {
     var React = T.React;
     if (props.name !== 'space-switcher' || !wormOn()) return;
@@ -8069,8 +8102,13 @@
     var React = T.React, rn = T.rn, out = [];
     if (APP !== 'home' || !React || !rn || !rn.View) return out;
     var color = THEME.bgColor || '#000000';
+    var libOp = rn.Animated && rn.Animated.View ? libVideoOp() : null;
     if (videoUri() && typeof React.useState === 'function')
-      out.push(React.createElement(VideoWallpaper, { key: 'theme-video' }));
+      out.push(libOp ? React.createElement(rn.Animated.View, {
+        key: 'theme-video-box', pointerEvents: 'none',
+        style: { position: 'absolute', left: 0, top: 0, width: 1920, height: 1080, opacity: libOp }
+      }, React.createElement(VideoWallpaper, { key: 'theme-video' }))
+        : React.createElement(VideoWallpaper, { key: 'theme-video' }));
     else if (bgVideosUsed() && typeof React.useState === 'function')
       out.push(React.createElement(BgVideo, { key: 'theme-bg-video' }));
     if (THEME.bgDim > 0)
@@ -8096,9 +8134,10 @@
       }));
     /* background boxes (field prefix), bottom first: box 3, box 2, box 1,
        then the footer and the top bar backgrounds always over the free boxes */
+    var boxes = [];
     ['box3', 'box2', 'box1', 'footerBg', 'topBarBg'].forEach(function (k) {
       if (!THEME[k + 'On'] || !THEME[k] || (k === 'footerBg' && !THEME.footer)) return;
-      out.push(React.createElement(rn.View, {
+      boxes.push(React.createElement(rn.View, {
         key: 'theme-' + k, pointerEvents: 'none',
         style: { position: 'absolute', left: THEME[k + 'X'], top: THEME[k + 'Y'],
                  width: THEME[k + 'Width'], height: THEME[k + 'Height'],
@@ -8106,6 +8145,13 @@
                  backgroundColor: THEME[k], opacity: THEME[k + 'Opacity'] }
       }));
     });
+    var boxOp = boxes.length ? boxesShown() : null;
+    if (boxOp && rn.Animated && rn.Animated.View)
+      out.push(React.createElement(rn.Animated.View, {
+        key: 'theme-boxes', pointerEvents: 'none',
+        style: { position: 'absolute', left: 0, top: 0, width: 1920, height: 1080, opacity: boxOp }
+      }, boxes));
+    else out = out.concat(boxes);
     if (THEME.bgGradient > 0) {
       /* no native gradient: strips with rising opacity; 'smooth' follows a
          smoothstep so the top starts at ~0 and the edge disappears */
@@ -8315,6 +8361,29 @@
       trophyNext();
     };
     setInterval(function () { try { console.log('THEME-HUBASK ' + (globalThis.__ztHubId || '')); } catch (e) {} }, 150);
+  }
+  /* the native video / picture behind the system apps (shared wallpaper
+     or Settings' own sysBg) stays out of the Game / App Library and the
+     hubs opened from them: while one of those is in front it says so twice
+     a second (THEME-LIBRARY), ZhiThemes hides it while it hears it */
+  if ((APP === 'library' || APP === 'hub' || APP === 'media') && THEME.sysOn) {
+    var libraryPing = function () {
+      var R = T.rn || T.libRN, AS = R && R.AppState;
+      var st = AS ? AS.currentState : null;
+      if (st !== 'active' || (APP !== 'library' && !fromLibrary())) return;
+      if (!T.done['library ping']) done('library ping (system video hidden here)');
+      try { console.log('THEME-LIBRARY'); } catch (e) {}
+    };
+    setInterval(libraryPing, 400);
+    var libraryTries = 0;
+    var libraryWatch = setInterval(function () {
+      var R = T.rn || T.libRN, AS = R && R.AppState;
+      if (++libraryTries > 600) clearInterval(libraryWatch);
+      if (!AS || typeof AS.addEventListener !== 'function') return;
+      clearInterval(libraryWatch);
+      try { AS.addEventListener('change', function (st) { if (st === 'active') libraryPing(); }); } catch (e) {}
+      libraryPing();
+    }, 100);
   }
   /* the hub card row (module 2592) gets {isTrophyShowing, trophyData,
      friendsData...} from its parent: the data is there even when the
@@ -8977,6 +9046,24 @@
   /* Game Library: 'pslibraryhub:main?space=game' (Apps: space=media) */
   function isLibraryUrl(u) { return /^pslibraryhub:|NPXS40071|NPXS40139/.test(String(u || '')); }
   var hubUrlLogs = {};
+  /* the Home's own video wallpaper stays out of the Game / App Library
+     page (drawn by the Home, under the row) while it has the focus */
+  function libVideoOp() {
+    var A = T.rn && T.rn.Animated;
+    if (!T.libVidOp && A && A.Value) T.libVidOp = new A.Value(1);
+    return T.libVidOp || null;
+  }
+  function libraryVideo(on) {
+    if (T.libVidIn === on) return;
+    T.libVidIn = on;
+    var op = libVideoOp();
+    if (!op) return;
+    setTimeout(function () {
+      try { T.rn.Animated.timing(op, { toValue: on ? 0 : 1, duration: 250, useNativeDriver: true }).start(); }
+      catch (e) { try { op.setValue(on ? 0 : 1); } catch (e2) {} }
+    }, 0);
+    if ((T.libVidLogs = (T.libVidLogs || 0) + 1) <= 6) log('library: Home video ' + (on ? 'hidden' : 'back'));
+  }
   function libraryHub(props) {
     var u = String(props.hubUrl || '');
     var lib = isLibraryUrl(u), focused = 'isHubFocused' in props;
@@ -8987,6 +9074,7 @@
           (lib && focused ? ' style=' + JSON.stringify(props.style) : ''));
     }
     if (!lib || !focused) return;
+    libraryVideo(!!props.isHubFocused);
     T.libOpened = T.libOpened || {};
     if (props.isHubFocused) { T.libOpened[u] = true; return; }
     /* libraryHideGames: the page waits out of the screen until it opens
@@ -9318,6 +9406,7 @@
         tabPill(props);
         tabEnds(props);
         tabWorm(props);
+        barReveal(props);
         if (THEME.menuMove || THEME.menuNoDim) optionsMenu(props);
         strandProbe(props);
         strandTune(props);
@@ -9863,6 +9952,7 @@
          Discover, All apps...): only the Start button and the hints */
       if (APP === 'media') {
         findReact(exp);
+        if (!T.libRN && 'AppRegistry' in exp && exp.AppState) T.libRN = exp;
         hookJsx(exp);
         return;
       }

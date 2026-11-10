@@ -161,6 +161,12 @@ bool g_shared = false;
    opened (it went away and came back) */
 std::string g_picture; /* full path, "" = none */
 std::atomic<int> g_generation{0};
+/* the Game / App Library (and a hub opened from it) is in front: its
+   theme.js prints THEME-LIBRARY twice a second; the shared wallpaper stays
+   out of it (the library shows its own backgrounds) */
+std::atomic<unsigned> g_library_pings{0};
+unsigned g_library_seen = 0;
+int g_library_frame = -1000;
 
 /* ---- focus layer */
 MonoClassField *g_focus_field = nullptr;
@@ -643,6 +649,20 @@ void zt_sys_video_apply(const std::string &script) {
   }
 }
 
+void zt_sys_video_library_ping() { g_library_pings.fetch_add(1); }
+
+/* true while the library said so in the last second */
+static bool library_in_front() {
+  const unsigned pings = g_library_pings.load();
+  if (pings != g_library_seen) {
+    if (g_frames - g_library_frame > 60)
+      zt_log("sys video: Game / App Library in front, wallpaper hidden");
+    g_library_seen = pings;
+    g_library_frame = g_frames;
+  }
+  return g_frames - g_library_frame <= 60;
+}
+
 void zt_sys_video_tick() {
   ++g_frames;
   std::string file, picture;
@@ -672,7 +692,7 @@ void zt_sys_video_tick() {
       zt_log("sys video: focus layer %d (picture)", focus);
       g_last_focus = focus;
     }
-    const bool wanted = focus >= 0 && focus != g_focus_game;
+    const bool wanted = focus >= 0 && focus != g_focus_game && !(focus == g_focus_shell_app && library_in_front());
     MonoObject *panel = stage();
     if (!panel)
       return;
@@ -706,7 +726,8 @@ void zt_sys_video_tick() {
     g_last_focus = focus;
   }
   const bool powering = power_state() != 0;
-  const bool wanted = !powering && focus >= 0 && (shared ? focus != g_focus_game : focus == g_focus_shell_app);
+  const bool wanted = !powering && focus >= 0 && (shared ? focus != g_focus_game : focus == g_focus_shell_app) &&
+                      !(focus == g_focus_shell_app && library_in_front());
   MonoObject *panel = stage();
   if (!panel)
     return;
@@ -783,5 +804,6 @@ void zt_sys_video_tick() {
 void zt_sys_video_install(MonoImage *) {}
 void zt_sys_video_apply(const std::string &) {}
 void zt_sys_video_tick() {}
+void zt_sys_video_library_ping() {}
 
 #endif
