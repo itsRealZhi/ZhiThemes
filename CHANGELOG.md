@@ -37,7 +37,12 @@ Alpha: made on firmware **9.60**; also seen working on **13.60** by a tester. Ot
 - **Progress bars** with % and speed for every upload to the PS5 and every SteamGridDB download; SteamGridDB pictures are streamed through the PS5 and loaded only once.
 
 ### Installing and switching themes on the PS5
-- **🎨 ZhiThemes** in every tile's Options menu: switch theme, turn ZhiThemes off (*PS5 default*), install themes from a USB drive.
+- **🎨 ZhiThemes** in every tile's Options menu, in sections:
+  - *Themes*: switch theme, turn ZhiThemes off (*PS5 default*), install themes from a USB drive or the Install folder, back up all themes to a USB drive.
+  - *Quick settings*: wallpaper, animated tiles, custom tiles, the extra tabs and the debug panel on or off without the editor.
+  - *Tools*: the editor's address, reload the theme, clear the picture cache, copy the logs or a screen dump to a USB drive.
+  - *About*: version and firmware, and a QR code for Ko-fi (O or an arrow closes it).
+  - *Updates*: automatic updates are coming later.
 - Copy a `.ztheme` to `/data/ZhiThemes/Install/` and it is installed when ZhiThemes starts.
 
 ### Safety

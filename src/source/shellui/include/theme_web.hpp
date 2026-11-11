@@ -25,3 +25,5 @@ void theme_web_start();
 bool theme_set_field(const std::string &key, const std::string &value);
 /* the same in another theme file */
 bool theme_set_field_in(const std::string &file, const std::string &key, const std::string &value);
+/* `key: true|false` in the active theme (no quotes, unlike theme_set_field) */
+bool theme_set_bool(const std::string &key, bool on);

@@ -881,6 +881,8 @@ float g_bind_shift = 0;    /* focoDeslocamento */
 float g_bind_corners = -1; /* focoCantos (multiplier) */
 /* esconderFoco: 1 = elements hidden (UINode.Visible false), 0 = shown */
 int g_focus_hidden = -1;
+/* the theme's own hideFocus (the About QR code hides the frame only for a while) */
+bool g_theme_hides_focus = false;
 
 /* What a table entry becomes (nullptr tint = stock colour). */
 struct TableLook {
@@ -1610,6 +1612,18 @@ void set_animation_speed(double speed) {
 /* systemFont / elementFont paths (apply_system_font), read by the open() hook */
 std::mutex g_font_lock;
 
+/* Options menu > ZhiThemes > About: the native focus frame is drawn over
+   everything the theme draws, so it goes while the QR code is shown */
+void focus_hide_for_qr(bool on) {
+  g_focus_hidden = on || g_theme_hides_focus ? 1 : 0;
+  int n = 0;
+  for (MonoObject *w : focus_widgets()) {
+    theme_widget(w);
+    n++;
+  }
+  zt_log("focus: frame %s for the QR code (%d widgets)", on ? "hidden" : "back", n);
+}
+
 void apply_focus_color(const std::string &script) {
   if (!g_pui) {
     zt_log("focus: Sce.PlayStation.PUI image missing");
@@ -1648,6 +1662,7 @@ void apply_focus_color(const std::string &script) {
     return (float)(v < 0 ? 0 : v > 1 ? 1 : v);
   };
   const bool hide = theme_value(script, "hideFocus", 0) != 0;
+  g_theme_hides_focus = hide;
   const bool line_on = theme_value(script, "focusLineColorOn", 0) != 0;
   const bool glow_on = theme_value(script, "focusGlowColorOn", 0) != 0;
   const float line[4] = {channel("focusLineR", 255), channel("focusLineG", 255),
@@ -3522,6 +3537,37 @@ void ConsoleLog_Hook(MonoString *msg, int level, void *error, void *userarg) {
       const std::string err = zt_theme_menu_install(path, theme_menu_reload);
       if (!err.empty()) {
         zt_log("js: menu: install %s: %s", path.c_str(), err.c_str());
+        zt_menu_notify(err);
+      }
+      return;
+    }
+    /* Options menu > ZhiThemes > Quick settings: "THEME-QSET <field> <0|1>" */
+    if (text.rfind("THEME-QSET ", 0) == 0) {
+      const size_t sp = text.find(' ', 11);
+      const std::string key = sp == std::string::npos ? "" : text.substr(11, sp - 11);
+      const bool on = sp != std::string::npos && text.compare(sp + 1, 1, "1") == 0;
+      const std::string err = zt_quick_set(key, on);
+      if (err.empty()) {
+        zt_log("js: menu: %s = %s; reload", key.c_str(), on ? "true" : "false");
+        theme_menu_reload();
+      } else {
+        zt_log("js: menu: %s: %s", key.c_str(), err.c_str());
+        zt_menu_notify(err);
+      }
+      return;
+    }
+    /* About's QR code open / closed: "THEME-QRFOCUS <1|0>" */
+    if (text.rfind("THEME-QRFOCUS ", 0) == 0) {
+      focus_hide_for_qr(text.size() > 14 && text[14] == '1');
+      return;
+    }
+    /* Options menu > ZhiThemes > Tools: "THEME-TOOL <name>" */
+    if (text.rfind("THEME-TOOL ", 0) == 0) {
+      const std::string tool = text.substr(11, 16);
+      zt_log("js: menu: tool %s", tool.c_str());
+      const std::string err = zt_tool_run(tool, theme_menu_reload);
+      if (!err.empty()) {
+        zt_log("js: menu: tool %s: %s", tool.c_str(), err.c_str());
         zt_menu_notify(err);
       }
       return;

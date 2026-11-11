@@ -118,6 +118,7 @@ if(ZT_SLIM_MODULE)
 		${D_SRC}/zt_stats.cpp
 		${D_SRC}/zt_storage.cpp
 		${D_SRC}/zt_install.cpp
+		${D_SRC}/zt_tools.cpp
 		${D_SRC}/external_symbols.cpp
 		${D_SRC}/mono_runtime.cpp
 		${D_SRC}/mono_utils.cpp

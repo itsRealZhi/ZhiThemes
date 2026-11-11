@@ -119,5 +119,14 @@ std::string zt_theme_menu_install(const std::string &path, void (*done)());
 /* a PS5 notification "ZhiThemes: <text>" (no [OnionHEN] prefix) */
 void zt_menu_notify(const std::string &text);
 
+/* ---- Options menu > ZhiThemes > Quick settings / Tools / About (zt_tools.cpp) ---- */
+/* {"ip","port","version","fw","usb":b,"cache":"N MB","cacheFiles","dumpFiles","busy"} */
+std::string zt_tools_json();
+/* one of the menu's on/off fields into the active theme; "" or the reason */
+std::string zt_quick_set(const std::string &key, bool on);
+/* reload | cache | dumpon | backup | logs | dump (the last three in a thread,
+   to the first USB stick); "" or the reason */
+std::string zt_tool_run(const std::string &tool, void (*reload)());
+
 /* mkdir -p of a folder under ZT_DIR */
 void zt_mkdirs(const std::string &path);

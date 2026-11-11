@@ -1542,10 +1542,53 @@ bool theme_set_field_in(const std::string &file, const std::string &key, const s
   return write_script(src, file);
 }
 
+/* `key: true|false` of the THEME block (Options menu > Quick settings);
+   added at the top of the block when missing */
+bool theme_set_bool(const std::string &key, bool on) {
+  const std::string file = zt_theme_file();
+  std::string src = read_file(file.c_str());
+  const size_t th = src.find("var THEME");
+  if (src.empty() || th == std::string::npos)
+    return false;
+  size_t block_end = src.find("\n  };", th);
+  if (block_end == std::string::npos)
+    block_end = src.size();
+  const std::string word = on ? "true" : "false";
+  auto ident = [](char c) { return isalnum((unsigned char)c) || c == '_'; };
+  for (size_t at = th; (at = src.find(key, at)) != std::string::npos && at < block_end;) {
+    size_t p = at + key.size();
+    const bool whole = !ident(src[at - 1]) && (p >= src.size() || !ident(src[p]));
+    at = p;
+    if (!whole)
+      continue;
+    while (p < src.size() && isspace((unsigned char)src[p]))
+      ++p;
+    if (p >= src.size() || src[p] != ':')
+      continue;
+    ++p;
+    while (p < src.size() && (src[p] == ' ' || src[p] == '\t'))
+      ++p;
+    /* the old value: a word or number up to , } or the line end */
+    size_t end = p;
+    while (end < src.size() && (ident(src[end]) || src[end] == '.' || src[end] == '-'))
+      ++end;
+    if (end == p)
+      return false;
+    src.replace(p, end - p, word);
+    return write_script(src, file);
+  }
+  const size_t brace = src.find('{', th);
+  if (brace == std::string::npos)
+    return false;
+  src.insert(brace + 1, "\n    " + key + ": " + word + ",");
+  return write_script(src, file);
+}
+
 #else
 
 void theme_web_start() {}
 bool theme_set_field(const std::string &, const std::string &) { return false; }
 bool theme_set_field_in(const std::string &, const std::string &, const std::string &) { return false; }
+bool theme_set_bool(const std::string &, bool) { return false; }
 
 #endif /* SHELLUI_THEME_WEB == 1 */

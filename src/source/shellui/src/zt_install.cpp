@@ -753,7 +753,7 @@ std::string zt_theme_menu_json() {
   out += usb_off() ? "true" : "false";
   out += ",\"installing\":";
   out += g_menu_installing.load() ? "true" : "false";
-  out += ",\"list\":" + zt_themes_json() + ",\"files\":[";
+  out += ",\"list\":" + zt_themes_json() + ",\"tools\":" + zt_tools_json() + ",\"files\":[";
   bool first = true;
   for (const Found &f : found_files()) {
     out += first ? "" : ",";

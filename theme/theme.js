@@ -2264,6 +2264,9 @@
        before the jsx hook got to folderTileKeys: the folder did not close) */
     if (THEME.folders || DEBUG.on)
       try { folderTileKeys(props); } catch (e) { T.errors++; log('folder keys: ' + e); }
+    /* this view goes out here, before the jsx hook's own pass */
+    if (!PLAIN && props.focusable === true && typeof props.name === 'string' && props.name)
+      try { qrTileKeys(props); } catch (e) { T.errors++; log('about QR keys: ' + e); }
     return fn(FocusShapeSlot, { id: id, el: fn.apply(self, args) }, args[2]);
   }
   /* jsx inside the <Tile />: image wrapper (testID experience-switcher-<ID>) */
@@ -6856,33 +6859,48 @@
   globalThis.__ztThemeMenu = function (text) {
     try { T.themeMenu = JSON.parse(text); } catch (e) { log('theme menu: ' + e); }
   };
-  function themesMenuItem() {
-    var last = T.themeMenu;
-    T.themeMenu = null;
-    try { console.log('THEME-THEMES'); } catch (e) {}
-    if (!T.themeMenu) T.themeMenu = last;
-    var d = T.themeMenu, subs = [];
-    var top = menuItem('zt-themes', '🎨 ZhiThemes', undefined);
-    top.subItems = subs;
-    if (!d) {
-      subs.push(menuItem('zt-th-none', 'ZhiThemes is not answering', 'ztthemes:none'));
-      return top;
-    }
+  /* ZhiThemes > Themes / Quick settings / Updates / Tools / About, each a
+     submenu (Themes > Installed one more level down). false = the old
+     single list with greyed headers, if the PS5 shows no submenu in a submenu. */
+  var THEME_MENU_NESTED = true;
+  /* the on/off fields the menu may change (the C++ keeps the same list) */
+  var QUICK_FIELDS = [
+    ['wallpaperOn', 'Wallpaper'],
+    ['tileAnimOn', 'Animated tiles'],
+    ['customTilesOn', 'Custom tiles'],
+    ['tabRecentOn', 'Recently played tab'],
+    ['tabFavOn', 'Favourites tab'],
+    ['tabNeverOn', 'Never played tab'],
+    ['debugOverlay', 'Debug panel']
+  ];
+  function infoItem(id, label) {
+    var it = menuItem(id, label, 'ztthemes:none');
+    it.disabled = true;
+    return it;
+  }
+  function subMenu(id, label, subs) {
+    var it = menuItem(id, label, undefined);
+    it.subItems = subs;
+    return it;
+  }
+  /* the menu's sections, [[id, label, items]] (pure: the harness checks it) */
+  function themeMenuSections(d) {
     var off = !!(d.off || d.usbOff), list = (d.list && d.list.themes) || [], active = d.list && d.list.active;
-    if (d.installing) {
-      var busy = menuItem('zt-th-busy', 'Installing a theme...', 'ztthemes:none');
-      busy.disabled = true;
-      subs.push(busy);
-    }
+    var tools = d.tools || {}, busy = tools.busy || '';
+    /* Themes */
+    var installed = [], themes = [];
+    if (d.installing) installed.push(infoItem('zt-th-busy', 'Installing a theme...'));
     list.forEach(function (t, i) {
       var cur = !off && t.name === active;
       var it = menuItem('zt-th-' + i, t.name + (cur ? '  (in use)' : ''), 'ztthemes:use?' + t.name);
       if (cur) it.disabled = true;
-      subs.push(it);
+      installed.push(it);
     });
+    if (!list.length) installed.push(infoItem('zt-th-empty', 'No themes yet'));
+    themes.push(subMenu('zt-th-inst', 'Installed (' + list.length + ')', installed));
     var stock = menuItem('zt-th-off', 'PS5 default (ZhiThemes off)' + (off ? '  (in use)' : ''), 'ztthemes:off');
     if (off) stock.disabled = true;
-    subs.push(stock);
+    themes.push(stock);
     (d.files || []).forEach(function (f, i) {
       /* a USB file installed before: "(installed)" (X only puts its
          theme in use), or "Update" when the file on the stick changed */
@@ -6891,23 +6909,189 @@
         var done = menuItem('zt-th-f' + i, 'From USB: ' + f.name + (cur ? '  (installed, in use)' : '  (installed)'),
                             'ztthemes:use?' + f.theme);
         if (cur) done.disabled = true;
-        subs.push(done);
+        themes.push(done);
         return;
       }
-      subs.push(menuItem('zt-th-f' + i, (f.from !== 'usb' ? 'Install from the Install folder: ' :
-                                         f.state === 'update' ? 'Update from USB: ' : 'Install from USB: ') + f.name,
-                         'ztthemes:file?' + f.path));
+      themes.push(menuItem('zt-th-f' + i, (f.from !== 'usb' ? 'Install from the Install folder: ' :
+                                           f.state === 'update' ? 'Update from USB: ' : 'Install from USB: ') + f.name,
+                           'ztthemes:file?' + f.path));
     });
-    if (!T.done['theme menu']) done('theme menu (' + list.length + ' themes, ' + (d.files || []).length + ' files' + (off ? ', off' : '') + ')');
+    var backup = menuItem('zt-th-backup', busy === 'backup' ? 'Backing up to USB...' :
+                          tools.usb ? 'Back up all themes to USB' : 'Back up all themes to USB (no USB stick)',
+                          'ztthemes:tool?backup');
+    if (!tools.usb || busy) backup.disabled = true;
+    themes.push(backup);
+    var out = [['zt-themes-t', '🎨 Themes', themes]];
+    /* Quick settings: only with a theme on (they change it) */
+    if (!off) {
+      var quick = QUICK_FIELDS.map(function (q) {
+        var on = !!THEME[q[0]];
+        return menuItem('zt-q-' + q[0], q[1] + ': ' + (on ? 'On' : 'Off'), 'ztthemes:qset?' + q[0] + ',' + (on ? 0 : 1));
+      });
+      out.push(['zt-quick', '⚡ Quick settings', quick]);
+    }
+    /* Updates: later (the ELF from GitHub) */
+    out.push(['zt-upd', '⬇ Updates', [infoItem('zt-upd-ver', 'Installed: ' + (tools.version || '?')),
+                                     infoItem('zt-upd-soon', 'Automatic updates: coming soon')]]);
+    /* Tools */
+    var t = [];
+    t.push(infoItem('zt-t-ed', tools.ip ? 'Editor: http://' + tools.ip + ':' + (tools.port || 4444) : 'Editor: no network'));
+    if (!off) t.push(menuItem('zt-t-reload', 'Reload the theme', 'ztthemes:tool?reload'));
+    var cache = menuItem('zt-t-cache', 'Clear the picture cache' + (tools.cache ? ' (' + tools.cache + ')' : ''), 'ztthemes:tool?cache');
+    if (!tools.cacheFiles) cache.disabled = true;
+    t.push(cache);
+    var logs = menuItem('zt-t-logs', busy === 'logs' ? 'Copying the logs...' :
+                        'Copy logs to USB' + (tools.usb ? '' : ' (no USB stick)'), 'ztthemes:tool?logs');
+    if (!tools.usb || busy) logs.disabled = true;
+    t.push(logs);
+    /* screen dump: 1st time it turns the dump on (the apps are dumped as
+       they open), 2nd time the files go to the stick and it goes off */
+    if (!off) {
+      var dumping = !!THEME.screenDump && !globalThis.__ztDiag;
+      var dump = menuItem('zt-t-dump', busy === 'dump' ? 'Copying the screen dump...' :
+                          dumping ? 'Screen dump to USB (' + (tools.dumpFiles || 0) + ' files)' + (tools.usb ? '' : ' (no USB stick)') :
+                          'Screen dump to USB (start)', dumping || globalThis.__ztDiag ? 'ztthemes:tool?dump' : 'ztthemes:tool?dumpon');
+      if (busy || ((dumping || globalThis.__ztDiag) && !tools.usb)) dump.disabled = true;
+      t.push(dump);
+    }
+    out.push(['zt-tools', '🛠 Tools', t]);
+    /* About */
+    out.push(['zt-about', 'ℹ About', [
+      infoItem('zt-a-ver', 'ZhiThemes ' + (tools.version || '') + (tools.fw ? '  ·  FW ' + tools.fw : '')),
+      /* the QR code is drawn by the theme: not with ZhiThemes off */
+      off ? infoItem('zt-a-kofi', 'Support: ko-fi.com/zhi')
+          : menuItem('zt-a-kofi', 'Support: ko-fi.com/zhi (QR code)', 'ztthemes:qr')
+    ]]);
+    return out;
+  }
+  T.themeMenuSections = themeMenuSections;
+  function themesMenuItem() {
+    var last = T.themeMenu;
+    T.themeMenu = null;
+    try { console.log('THEME-THEMES'); } catch (e) {}
+    if (!T.themeMenu) T.themeMenu = last;
+    var d = T.themeMenu, subs = [];
+    var top = subMenu('zt-themes', '🎨 ZhiThemes', subs);
+    if (!d) {
+      subs.push(menuItem('zt-th-none', 'ZhiThemes is not answering', 'ztthemes:none'));
+      return top;
+    }
+    themeMenuSections(d).forEach(function (s) {
+      if (THEME_MENU_NESTED) { subs.push(subMenu(s[0], s[1], s[2])); return; }
+      subs.push(infoItem(s[0], '── ' + s[1] + ' ──'));
+      s[2].forEach(function (it) {
+        /* flat: Themes > Installed comes up one level */
+        if (it.subItems) Array.prototype.push.apply(subs, it.subItems);
+        else subs.push(it);
+      });
+    });
+    if (!T.done['theme menu']) done('theme menu (' + ((d.list && d.list.themes) || []).length + ' themes, ' +
+                                    (d.files || []).length + ' files' + (d.off || d.usbOff ? ', off' : '') +
+                                    (THEME_MENU_NESTED ? ', nested' : ', flat') + ')');
     return top;
   }
   function themesAction(url) {
     var m = /^ztthemes:(\w+)\??(.*)$/.exec(url);
     if (!m || m[1] === 'none') return;
     log('theme menu: ' + url);
+    if (m[1] === 'qr') { aboutQrOpen(); return; }
+    var q = m[1] === 'qset' ? /^(\w+),([01])$/.exec(m[2]) : null;
     var cmd = m[1] === 'use' ? 'THEME-THEMEUSE ' + m[2] : m[1] === 'off' ? 'THEME-THEMEOFF' :
-              m[1] === 'file' ? 'THEME-THEMEFILE ' + m[2] : '';
+              m[1] === 'file' ? 'THEME-THEMEFILE ' + m[2] :
+              q ? 'THEME-QSET ' + q[1] + ' ' + q[2] :
+              m[1] === 'tool' && /^\w+$/.test(m[2]) ? 'THEME-TOOL ' + m[2] : '';
     if (cmd) try { console.log(cmd); } catch (e) {}
+  }
+  /* ---- About > Support: the Ko-fi QR code (Assets/particles/ui_kofi_qr.png)
+     in the Home front layer. O or an arrow closes it (qrTileKeys); also after 60 s
+     and when the Options menu opens again. */
+  var qrListeners = [];
+  T.qrOpen = false;
+  function aboutQrSet(on) {
+    on = !!on;
+    if (T.qrOpen === on) return;
+    T.qrOpen = on;
+    if (T.qrTimer) { clearTimeout(T.qrTimer); T.qrTimer = null; }
+    if (on) {
+      T.qrTimer = setTimeout(function () { aboutQrSet(false); }, 60000);
+      if (!T.qrMounted) log('about: QR code asked, but the Home front layer is not there (ZhiThemes off?)');
+    }
+    /* the native focus frame is drawn over the theme: hidden meanwhile */
+    try { console.log('THEME-QRFOCUS ' + (on ? 1 : 0)); } catch (e) {}
+    qrListeners.forEach(function (f) { try { f(); } catch (e) {} });
+  }
+  function aboutQrOpen() { aboutQrSet(true); }
+  /* O or an arrow closes it: every tile's focusable view ({ name,
+     focusable }) gets key handlers that close the QR code while it is shown.
+     O is taken (nothing else happens); an arrow then does what it always
+     does (the row moves). Closed, each key does what the tile did. One
+     function per tile and key, made once. */
+  var QR_KEYS = ['onBackKeyDown', 'onLeftKeyDown', 'onRightKeyDown', 'onUpKeyDown', 'onDownKeyDown'];
+  var qrKeyFns = {};
+  function qrKeyFn(name) {
+    var k = { orig: null, busy: false };
+    k.fn = function (e) {
+      if (T.qrOpen && name === 'onBackKeyDown') {
+        take(e);
+        if (pressed(e)) { log('about: QR code closed with O'); aboutQrSet(false); }
+        return false;
+      }
+      if (T.qrOpen) { log('about: QR code closed by ' + name.slice(2, -7).toLowerCase()); aboutQrSet(false); }
+      /* the folder keys wrap this view's keys too: never round in a circle */
+      if (k.busy || typeof k.orig !== 'function') return true;
+      k.busy = true;
+      try { return k.orig.apply(this, arguments); } finally { k.busy = false; }
+    };
+    return k;
+  }
+  function qrTileKeys(props) {
+    var id = props.name, keys = qrKeyFns[id];
+    if (!keys) {
+      keys = qrKeyFns[id] = {};
+      QR_KEYS.forEach(function (n) { keys[n] = qrKeyFn(n); });
+    }
+    QR_KEYS.forEach(function (n) {
+      var k = keys[n];
+      if (props[n] !== k.fn) {
+        k.orig = typeof props[n] === 'function' ? props[n] : null;
+        props[n] = k.fn;
+      }
+    });
+    if (!T.done['about QR keys']) done('about QR keys');
+  }
+  T.qrTileKeys = qrTileKeys;
+  T.aboutQrSet = aboutQrSet;
+  function AboutQr() {
+    var React = T.React, rn = T.rn;
+    var tick = React.useState(0)[1];
+    React.useEffect(function () {
+      T.qrMounted = true;
+      var f = function () { tick(function (n) { return n + 1; }); };
+      qrListeners.push(f);
+      return function () {
+        T.qrMounted = false;
+        var i = qrListeners.indexOf(f);
+        if (i >= 0) qrListeners.splice(i, 1);
+      };
+    }, []);
+    if (!T.qrOpen) return null;
+    var card = { position: 'absolute', left: 960 - 260, top: 540 - 330, width: 520, height: 660, borderRadius: 32,
+                 backgroundColor: '#ffffff', alignItems: 'center', paddingTop: 40 };
+    /* only sizes of the FontSizePS table (a raw size reloads the Home) */
+    var text = function (color, px, extra) {
+      var s = { color: color }, size = fontSize(px);
+      if (size) s.fontSize = size;
+      return extra ? merge(s, extra) : s;
+    };
+    if (!T.done['about QR code']) done('about QR code');
+    return React.createElement(rn.View, { pointerEvents: 'none', style: [ZT_SCREEN, { backgroundColor: 'rgba(0,0,0,0.6)' }] },
+      React.createElement(rn.View, { style: card },
+        React.createElement(rn.Text, { key: 't', style: text('#1b1b1f', 36), children: 'Support ZhiThemes' }),
+        React.createElement(rn.Image, { key: 'q', source: { uri: 'file://' + ZT_ASSETS + 'particles/ui_kofi_qr.png' },
+                                        style: { width: 400, height: 400, marginTop: 24 } }),
+        React.createElement(rn.Text, { key: 'u', style: text('#1b1b1f', 30, { marginTop: 20 }), children: 'ko-fi.com/zhi' }),
+        React.createElement(rn.Text, { key: 'h', style: text('#6b6b73', 22, { marginTop: 14 }),
+                                       children: 'Thank you! Press O or move to close.' })));
   }
   /* "Move to / Add to folder" submenu: the folders of the same space + new */
   function folderTargets(id, gid, space, skip) {
@@ -7043,7 +7227,7 @@
         var folderOn = !PLAIN && folderMenuOn();
         /* Options > ZhiThemes on top */
         var top = [];
-        try { top = [themesMenuItem()]; } catch (e) { log('theme menu error: ' + e); }
+        try { aboutQrSet(false); top = [themesMenuItem()]; } catch (e) { log('theme menu error: ' + e); }
         if (folderOn && typeof titleId === 'string' && titleId.indexOf(FOLDER) === 0) {
           var own = top.concat(folderMenuItems(titleId), customMenuItems(titleId));
           log('options menu: folder ' + titleId + ' (' + own.length + ' items)');
@@ -10318,6 +10502,8 @@
         if (!T.done['font style']) done('font style');
       }
       if (APP === 'home' && props && typeof props === 'object') {
+        if (!PLAIN && props.focusable === true && typeof props.name === 'string' && props.name)
+          try { qrTileKeys(props); } catch (e) { T.errors++; log('about QR keys: ' + e); }
         topIcons(props, type);
         seeRow(props);
         tileLeftKeys(props);
@@ -10452,7 +10638,8 @@
            THEME.box1On || THEME.box2On || THEME.box3On || THEME.user ||
            THEME.searchDetached || THEME.settingsDetached || THEME.profileDetached || THEME.iconsNav ||
            THEME.fakeTrophies || THEME.deco1On || THEME.deco2On || THEME.deco3On || THEME.deco4On ||
-           THEME.folders || THEME.menuMove || THEME.playInfoOn || extraTabsOn() || THEME.animToast || THEME.debugOverlay) &&
+           THEME.folders || THEME.menuMove || THEME.playInfoOn || extraTabsOn() || THEME.animToast || THEME.debugOverlay ||
+           (APP === 'home' && !PLAIN)) &&
           T.root && props && typeof props === 'object' && props.style === T.root) {
         var children = props.children;
         children = Array.isArray(children) ? children.slice() : children == null ? [] : [children];
@@ -10494,6 +10681,9 @@
         /* the debug panel, over everything */
         if (THEME.debugOverlay && T.React && APP === 'home' && typeof T.React.useState === 'function')
           front.push(T.React.createElement(DebugPanel, { key: 'theme-debug-panel' }));
+        /* Options > ZhiThemes > About: the Ko-fi QR code (null while closed) */
+        if (APP === 'home' && !PLAIN && T.React && typeof T.React.useState === 'function')
+          front.push(T.React.createElement(AboutQr, { key: 'theme-about-qr' }));
         props.children = front.length ? children.concat(single('front', homeLayer('theme-layer-front', readyGate(front))))
                                       : children;
       }
@@ -10504,7 +10694,7 @@
   }
   function hookJsx(exp) {
     if (!T.Fragment && exp && exp.Fragment) T.Fragment = exp.Fragment;
-    var needed = APP === 'library' || SYS_APP || (APP === 'media' && (THEME.hideMediaButtons || THEME.hideHints)) || THEME.measureScreen || DEBUG.on || titleMode() !== 'game' || THEME.fontStyle ||
+    var needed = (APP === 'home' && !PLAIN) || APP === 'library' || SYS_APP || (APP === 'media' && (THEME.hideMediaButtons || THEME.hideHints)) || THEME.measureScreen || DEBUG.on || titleMode() !== 'game' || THEME.fontStyle ||
                  THEME.tileNameFontStyle || THEME.searchIcon || THEME.settingsIcon ||
                  THEME.searchDetached || THEME.settingsDetached || THEME.profileDetached || THEME.iconsNav ||
                  THEME.fakeTrophies || THEME.folders || THEME.menuMove || THEME.menuNoDim ||
