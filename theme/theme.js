@@ -1329,7 +1329,36 @@
         if (i >= 0) readyListeners.splice(i, 1);
       };
     }, [ok]);
-    return ok ? props.children : null;
+    if (!ok) return null;
+    /* opened after the loading screen: a soft fade in */
+    var A = T.rn && T.rn.Animated;
+    if (!A || !A.View) return props.children;
+    return React.createElement(FadeIn, { id: 'front-layer', fill: true }, props.children);
+  }
+  /* Things that show up a moment after a reload (theme layers, bar buttons,
+     the controller) fade in softly instead of popping. Only the first time
+     each one mounts in this Home (the front layer mounts again on every tab
+     change: no fade then). */
+  var FADE_IN_MS = 350;
+  function FadeIn(props) {
+    var React = T.React, A = T.rn.Animated;
+    var faded = T.fadedOnce = T.fadedOnce || {};
+    var v = React.useRef(null);
+    if (!v.current) v.current = { first: !faded[props.id], val: new A.Value(faded[props.id] ? 1 : 0) };
+    React.useEffect(function () {
+      faded[props.id] = true;
+      if (!v.current.first) return;
+      try { A.timing(v.current.val, { toValue: 1, duration: FADE_IN_MS, useNativeDriver: true }).start(); }
+      catch (e) { try { v.current.val.setValue(1); } catch (e2) {} }
+    }, []);
+    var st = { opacity: v.current.val };
+    if (props.fill) { st.position = 'absolute'; st.left = 0; st.top = 0; st.right = 0; st.bottom = 0; }
+    return React.createElement(A.View, { pointerEvents: 'box-none', style: st }, props.children);
+  }
+  function fadeIn(id, child) {
+    var React = T.React;
+    if (APP !== 'home' || !React || typeof React.useRef !== 'function' || !T.rn || !T.rn.Animated || !T.rn.Animated.View) return child;
+    return React.createElement(FadeIn, { key: 'zt-fade-' + id, id: id }, child);
   }
   function readyGate(children) {
     var React = T.React;
@@ -3807,6 +3836,7 @@
          the Home moves up to a hub / the Game Library, these stayed on it */
       var fade = barLowFade(y);
       if (fade) child = React.createElement(rn.Animated.View, { style: { opacity: fade } }, child);
+      if (pre !== 'padInfo') child = fadeIn('bar-' + pre, child);
       return React.createElement(rn.View, p, child);
     };
     var button = function (pre, icon, title, onPress) {
@@ -4002,6 +4032,14 @@
   function PadInfo() {
     var React = T.React, rn = T.rn;
     var st = React.useState(T.padBattery || null), bat = st[0], setBat = st[1];
+    /* the controller shows together with its battery (it came first, the
+       battery ~1.5 s later): hidden until the first reading, at most 4 s */
+    var wt = React.useState(!T.padBattery), wait = wt[0], setWait = wt[1];
+    React.useEffect(function () {
+      if (!wait) return undefined;
+      var t = setTimeout(function () { setWait(false); }, 4000);
+      return function () { clearTimeout(t); };
+    }, []);
     React.useEffect(function () {
       var live = true, last = '', early = 0, te = 0;
       var read = function () {
@@ -4019,18 +4057,23 @@
         });
       };
       /* every 5 s: plugging the controller in shows up soon */
-      var t0 = setTimeout(read, 1500), t = setInterval(read, 5000);
+      var t0 = setTimeout(read, 300), t = setInterval(read, 5000);
       return function () { live = false; clearTimeout(t0); clearTimeout(te); clearInterval(t); };
     }, []);
     var size = THEME.padInfoSize > 0 ? THEME.padInfoSize : THEME.iconSize > 0 ? THEME.iconSize : 38;
     var col = THEME.padInfoColor || '#ffffff', mode = THEME.padInfoBattery || 'both';
     var bcol = bat && bat.charging ? PAD_GREEN : bat && bat.pct != null && bat.pct <= 20 ? (THEME.padInfoLowColor || '#ff5050') : col;
     var padIcon = THEME.padInfoIcon || 'ps5_wireless_controller';
+    /* before the reading: the same box, see-through (keeps its width) */
+    var shown = function (el) {
+      if (bat || !wait) return fadeIn('bar-pad', el);
+      return React.createElement(rn.View, { style: { opacity: 0 } }, el);
+    };
     if (mode === 'inside') {
       if (!T.done['controller drawn']) done('controller drawn (battery inside)');
-      return React.createElement(rn.View, { pointerEvents: 'none',
+      return shown(React.createElement(rn.View, { pointerEvents: 'none',
         style: { flexDirection: 'row', alignItems: 'center', height: 56, paddingLeft: 16, paddingRight: 16 } },
-        padInside(React, rn, padIcon, size, bat));
+        padInside(React, rn, padIcon, size, bat)));
     }
     /* the battery icon and the % keep their place before the first reading
        and at any level: the bar row is right aligned, so a wider controller
@@ -4047,8 +4090,8 @@
         bat && bat.pct != null ? React.createElement(rn.Text, { numberOfLines: 1, style: { fontSize: px, color: bcol } }, bat.pct + '%') : null));
     }
     if (!T.done['controller drawn']) done('controller drawn');
-    return React.createElement(rn.View, { pointerEvents: 'none',
-      style: { flexDirection: 'row', alignItems: 'center', height: 56, paddingLeft: 16, paddingRight: 16 } }, kids);
+    return shown(React.createElement(rn.View, { pointerEvents: 'none',
+      style: { flexDirection: 'row', alignItems: 'center', height: 56, paddingLeft: 16, paddingRight: 16 } }, kids));
   }
 
   /* ---- PlayStation Store tile ----
