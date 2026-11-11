@@ -3491,17 +3491,31 @@
     });
     return out.filter(function (c) { return c.x < rowStartX() && T.iconRefs && T.iconRefs[c.pre]; });
   }
+  /* the row's list, from its strand (module 26: data, renderItem,
+     keyExtractor, selectedItem); kept with or without folders (only the
+     folders' code kept it: with folders off, left from the row did nothing) */
+  function rowDataSeen(props) {
+    if (!('selectedItem' in props) || typeof props.renderItem !== 'function' ||
+        typeof props.keyExtractor !== 'function' || !Array.isArray(props.data))
+      return;
+    var media = rowSpace(props.data) === 'media';
+    if (media) T.rowDataMedia = props.data;
+    else T.rowData = props.data;
+    if (props.ref && typeof props.ref === 'object') T[media ? 'strandRefMedia' : 'strandRefGame'] = props.ref;
+  }
   function atFirstTile() {
     var sel = T.selectedId;
     if (!sel) return false;
-    var lists = [T.rowData, T.rowDataMedia];
+    var lists = [T.rowData, T.rowDataMedia], firsts = [];
     for (var i = 0; i < lists.length; i++) {
       var l = lists[i];
       if (!Array.isArray(l) || !l.length) continue;
       var first = null;
       for (var j = 0; j < l.length && !first; j++) if (l[j] && typeof l[j].id === 'string') first = l[j].id;
       if (first === sel) return true;
+      firsts.push(first);
     }
+    if (!T.done['row left: not first']) done('row left: not first (' + sel + ' / first ' + (firsts.join(',') || 'no row list') + ')');
     return false;
   }
   var rowLeftCache = new WeakMap(), rowLeftBare = null;
@@ -5808,12 +5822,7 @@
       return;
     if (props.ref && typeof props.ref === 'object' && 'current' in props.ref) T.strandRef = props.ref;
     /* the Games row's list (the Media row has none of the Games folders) */
-    if (Array.isArray(props.data)) {
-      var media = rowSpace(props.data) === 'media';
-      if (media) T.rowDataMedia = props.data;
-      else T.rowData = props.data;
-      if (props.ref && typeof props.ref === 'object') T[media ? 'strandRefMedia' : 'strandRefGame'] = props.ref;
-    }
+    rowDataSeen(props);
     selectAfterReload(props);
     selectGuard(props);
     var fo = folderOfGame(props.selectedItem);
@@ -10508,6 +10517,7 @@
         seeRow(props);
         tileLeftKeys(props);
         iconSfx(props);
+        rowDataSeen(props);
         favEmptyItem(props);
         hubLayer(props);
         if ('hubUrl' in props && 'focusLayerName' in props) {
