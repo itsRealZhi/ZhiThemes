@@ -2584,6 +2584,7 @@ struct HubExec {
   MonoObject *executor;
   uint32_t handle;
   unsigned hub_focus; /* the last g_hub_focus_seq handed to this hub */
+  bool media;         /* the Media hub (apps): only the hub focus, no trophy requests */
 };
 std::vector<HubExec> g_hub_execs;
 std::mutex g_hub_exec_lock;
@@ -2618,12 +2619,14 @@ bool hub_focus_changed(unsigned id) {
   h->hub_focus = now;
   return true;
 }
-MonoObject *hub_executor_here(unsigned id) {
+MonoObject *hub_executor_here(unsigned id, bool *media = nullptr) {
   std::lock_guard<std::mutex> lock(g_hub_exec_lock);
   HubExec *h = hub_exec_for(id);
+  if (media)
+    *media = h && h->media;
   return h ? h->executor : nullptr;
 }
-unsigned remember_hub_executor(MonoObject *self) {
+unsigned remember_hub_executor(MonoObject *self, bool media = false) {
   std::lock_guard<std::mutex> lock(g_hub_exec_lock);
   /* the same executor again (a reload of that context): a new number */
   for (size_t i = 0; i < g_hub_execs.size(); ++i)
@@ -2640,10 +2643,10 @@ unsigned remember_hub_executor(MonoObject *self) {
     g_hub_execs.erase(g_hub_execs.begin());
   }
   const unsigned id = ++g_hub_next_id;
-  g_hub_execs.push_back({id, pthread_self(), self, mono_gchandle_new(self, true), 0});
+  g_hub_execs.push_back({id, pthread_self(), self, mono_gchandle_new(self, true), 0, media});
   static int logged = 0;
   if (logged++ < 12)
-    zt_log("js: hub context %u registered (%zu known)", id, g_hub_execs.size());
+    zt_log("js: %s context %u registered (%zu known)", media ? "media hub" : "hub", id, g_hub_execs.size());
   return id;
 }
 
@@ -2927,7 +2930,8 @@ void deliver_hub_data() {
 
 void deliver_hub_request(unsigned ctx) {
   /* only on the asking hub's own thread, to the asking context */
-  MonoObject *executor = hub_executor_here(ctx);
+  bool media = false;
+  MonoObject *executor = hub_executor_here(ctx, &media);
   if (!executor || !g_eval_script) {
     static int skipped = 0;
     if (!executor && skipped++ < 3)
@@ -2949,6 +2953,9 @@ void deliver_hub_request(unsigned ctx) {
       zt_log("js: hub focus %d told to hub context %u", g_hub_focus.load(), ctx);
     }
   }
+  /* the trophy requests are for a game hub */
+  if (media)
+    return;
   std::string id;
   {
     std::lock_guard<std::mutex> lock(g_name_lock);
@@ -2999,6 +3006,8 @@ void RunScript_Hook(MonoObject *self, MonoObject *bundle) {
     g_hub_executor_handle = mono_gchandle_new(self, true);
     g_hub_executor = self;
     hub_id = remember_hub_executor(self);
+  } else if (app && strcmp(app, "media") == 0) {
+    hub_id = remember_hub_executor(self, true);
   }
   if (app)
     eval_theme(self, app, hub_id);

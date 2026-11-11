@@ -872,6 +872,9 @@
     return THEME.tileVertical === true || Number(THEME.tileRatio) > 1.01 ? 1.5 : 1;
   }
   function tileHeight() { return Math.round(THEME.tileSize * tileRatio()); }
+  /* the hub view's small tile sized by its height (focused shape in a
+     vertical row), like the one of a square row */
+  function miniByHeight() { return tileRatio() !== 1 && !!focusFormat(); }
   function focusHeight() { return Math.round(THEME.focusSize * tileRatio()); }
 
   /* ---- module 24: constants of the game row ("ExperienceSwitcher") ---- */
@@ -895,9 +898,25 @@
     exp.EXPERIENCE_SCALE = THEME.focusSize / THEME.tileSize;
     exp.BORDER_RADIUS = THEME.tileCorners;
     /* small tile in the corner of the details view: keeps the stock size (80) */
+    /* a focused shape in a vertical row: by the height (the Steam tile of the
+       hub view was 1.5x the one of a square row, 122 px high instead of 80) */
     if (typeof exp.MINIMIZED_EXP_SIZE === 'number')
-      exp.MINIMIZED_EXP_SCALE = exp.MINIMIZED_EXP_SIZE / THEME.focusSize;
+      exp.MINIMIZED_EXP_SCALE = exp.MINIMIZED_EXP_SIZE / (miniByHeight() ? focusHeight() : THEME.focusSize);
     if (typeof exp.MINIMIZED_EXP_SCALE === 'number') T.minScale = exp.MINIMIZED_EXP_SCALE;
+    /* focused shape: the hub view takes the focused tile centre to centre,
+       so the small one sat shapeExtra/2 off: a narrower shape (2:3 on a
+       square row) almost at the screen's edge, a Steam one in a vertical row
+       ~200 px to the right. Its left stays at the stock corner, it grows to
+       the right like the stock one (the name margins follow it, see
+       shapeTitleConstants) */
+    T.minLeftAdj = 0;
+    if (focusFormat() && typeof exp.MINIMIZED_EXP_MARGIN_LEFT === 'number' &&
+        typeof exp.MINIMIZED_EXP_SIZE === 'number' && T.minScale > 0) {
+      var sw = (THEME.focusSize + shapeExtra()) * T.minScale;
+      T.minLeftAdj = (sw - exp.MINIMIZED_EXP_SIZE) / 2 - shapeExtra() / 2;
+      exp.MINIMIZED_EXP_MARGIN_LEFT += T.minLeftAdj;
+      log('focus shape: small tile of the hub view at the corner (' + Math.round(T.minLeftAdj) + ' px)');
+    }
     if (THEME.fixDetails) {
       /* The animation maths for the details view assume the row sits right
          below the top bar and has the stock height. */
@@ -914,11 +933,12 @@
          squares. With the real heights the top of the small one stays at
          MINIMIZED_EXP_MARGIN_TOP. */
       if (tileRatio() !== 1 && typeof exp.MINIMIZED_EXP_SIZE === 'number') {
-        var mini = exp.MINIMIZED_EXP_SIZE;
-        exp.MINIMIZED_EXP_MARGIN_TOP += (mini * tileRatio() - mini) / 2 -
-                                        (focusHeight() - THEME.focusSize) / 2;
+        var mini = exp.MINIMIZED_EXP_SIZE, miniH = miniByHeight() ? mini : mini * tileRatio();
+        T.minTopAdj = (miniH - mini) / 2 - (focusHeight() - THEME.focusSize) / 2;
+        exp.MINIMIZED_EXP_MARGIN_TOP += T.minTopAdj;
       }
     }
+    if (typeof exp.MINIMIZED_EXP_SIZE === 'number') T.miniSize = exp.MINIMIZED_EXP_SIZE;
     if (tileRatio() !== 1)
       log('vertical tiles: ratio ' + tileRatio() + ', tiles ' + THEME.tileSize + 'x' + tileHeight() +
           ', focused ' + THEME.focusSize + 'x' + focusHeight() +
@@ -930,6 +950,38 @@
     done('constants');
   }
 
+  /* focused shape: where the hub view puts the tile name, by the PS5's own
+     maths (the name strip's translateTitle, read while drawing):
+       name left = MIN_EXP_LEFT + MIN_EXP_SIZE + MINIMIZED_TITLE_MARGIN_LEFT
+                   (+ the name's own shift in the row: tileNameX + shapeExtra)
+       name top  = MIN_EXP_TOP + MINIMIZED_TITLE_MARGIN_TOP
+     and the small tile (the focused one moved centre to centre, then
+     scaled by MIN_EXP_SCALE around its centre): its centre is shapeExtra/2
+     right of the stock one, it is (focus + shapeExtra) * scale wide and
+     focusHeight * scale high. The two margins put the name 44 px right of
+     the small tile and 9 px below its top, as the stock square one; the
+     vertical rows' MIN_EXP_TOP change (minTopAdj, for the tile) is taken
+     back for the name. Before, a translate of ours did it (counted about
+     twice on the PS5, tuned by hand per theme). */
+  /* vertical rows without a shape too: their MIN_EXP_TOP change also
+     moved the name up over the small tile */
+  function shapeTitleConstants(exp) {
+    if (T.shapeMargins || (!focusFormat() && tileRatio() === 1) || typeof exp.MINIMIZED_TITLE_MARGIN_LEFT !== 'number' ||
+        typeof exp.MINIMIZED_TITLE_MARGIN_TOP !== 'number' || typeof exp.TITLE_X !== 'number')
+      return;
+    var mini = T.miniSize || 80;
+    var m = T.minScale > 0 ? T.minScale : mini / (miniByHeight() ? focusHeight() : THEME.focusSize);
+    var extra = shapeExtra(), w = (THEME.focusSize + extra) * m, h = focusHeight() * m;
+    var gapL = exp.MINIMIZED_TITLE_MARGIN_LEFT, gapT = exp.MINIMIZED_TITLE_MARGIN_TOP;
+    /* (the same with minLeftAdj: the tile and the name both move with
+       MIN_EXP_LEFT, so the gap between them does not change) */
+    exp.MINIMIZED_TITLE_MARGIN_LEFT = Math.round(gapL - extra / 2 + (w - mini) / 2);
+    exp.MINIMIZED_TITLE_MARGIN_TOP = Math.round(gapT - (T.minTopAdj || 0) + (h - mini) / 2);
+    T.shapeMargins = true;
+    done('shape title margins: left ' + gapL + ' -> ' + exp.MINIMIZED_TITLE_MARGIN_LEFT +
+         ', top ' + gapT + ' -> ' + exp.MINIMIZED_TITLE_MARGIN_TOP +
+         ' (small tile ' + Math.round(w) + 'x' + Math.round(h) + ', shape +' + extra + ', scale ' + m.toFixed(3) + ')');
+  }
   /* vertical tiles: exports read while drawing */
   function verticalConstants(exp) {
     if (tileRatio() === 1) return;
@@ -1289,6 +1341,7 @@
     React.useEffect(function () {
       var list = singles[slot] = singles[slot] || [];
       var entry = { id: me.current, bump: bump };
+      me.current.on = true;
       list.push(entry);
       if (list.length > 1 && !T.done['layer copies ' + slot]) done('layer copies ' + slot + ': ' + list.length);
       list.forEach(function (x) { x.bump(function (n) { return n + 1; }); });
@@ -1298,9 +1351,12 @@
         list.forEach(function (x) { x.bump(function (n) { return n + 1; }); });
       };
     }, []);
+    /* nothing before this copy is counted: copies mounted in the same pass
+       all saw an empty list and drew together for a frame or two (two fake
+       titles over each other after a reload) */
     var list = singles[slot] || [];
-    var last = list.length ? list[list.length - 1].id : me.current;
-    return last === me.current ? props.children : null;
+    var last = list.length ? list[list.length - 1].id : null;
+    return me.current.on && last === me.current ? props.children : null;
   }
   /* The Home first draws a loading screen (no row, no tabs, no top bar)
      and then the real one. The front layer (own clock, icons, footer, icons
@@ -1443,7 +1499,8 @@
     try { A.timing(v, { toValue: on ? 1 : 0, duration: 150, useNativeDriver: true }).start(); }
     catch (e) { try { v.setValue(on ? 1 : 0); } catch (e2) {} }
   }
-  if (APP === 'hub' && hubTitleGated()) {
+  /* the Media hub (apps) too: its poster name is the game title there */
+  if ((APP === 'hub' || APP === 'media') && hubTitleGated()) {
     globalThis.__themeHubFocus = function (on) { hubTitleShow(!!on, on ? 'hub focused' : 'back on the Home'); };
     setInterval(function () { try { console.log('THEME-HUBASK ' + (globalThis.__ztHubId || '')); } catch (e) {} }, 150);
   }
@@ -3054,11 +3111,26 @@
   /* at the height of the bar but left of the tabs (Games / Media start at
      84 + tabsX): the tabs layer has canMoveLeft false and the icon stayed in
      'home-system', on the right; it gets its own layer too */
-  function leftOfTabs(pre) {
+  function tabsStart() {
     /* centred tabs: their left edge depends on the names; ~300 px left of the centre */
     var part = tabsAlignPart(), start = 84 + (THEME.tabsX || 0);
     if (part > 0) start += ((THEME.tabsWidth > 0 ? THEME.tabsWidth : 1752) - 600) * part;
-    return !offBar(pre) && iconScreen(pre)[0] + 52 < start;
+    return start;
+  }
+  function leftOfTabs(pre) {
+    return !offBar(pre) && iconScreen(pre)[0] + 52 < tabsStart();
+  }
+  /* Power / Trophies still in the bar but moved left of the tabs (place =
+     measured): the PS5 went from the first tab nowhere on the left (only up
+     reached them), they take the icons' path like the ones out of the bar */
+  function barLeftOfTabs(pre) {
+    var b = T.barBox && T.barBox[pre];
+    return !!(THEME.iconsNav && THEME[pre + 'On'] && b && b[1] <= 130 && b[0] + b[2] / 2 < tabsStart() &&
+              T.iconRefs && T.iconRefs[pre]);
+  }
+  /* left of the tabs: an icon by its field, a bar button by its measured place */
+  function anyLeftOfTabs(pre) {
+    return ICON_X[pre] != null ? leftOfTabs(pre) : barLeftOfTabs(pre);
   }
   function outOfBar(pre) {
     return !!detached()[pre] || (THEME.iconsNav !== false && (offBar(pre) || leftOfTabs(pre)));
@@ -3148,9 +3220,9 @@
      ~255180). The tabs layer's leftCandidate reached Settings but not Profile, so left on the first tab also focuses the icon by its ref */
   var tabKeys = {};
   function leftIconOfTabs() {
-    var left = null;
-    shownIcons().forEach(function (pre) {
-      if (leftOfTabs(pre) && (!left || iconScreen(pre)[0] > iconScreen(left)[0])) left = pre;
+    var left = null, list = shownIcons().concat(['powerBtn', 'trophyBtn']);
+    list.forEach(function (pre) {
+      if (anyLeftOfTabs(pre) && (!left || iconPos(pre)[0] > iconPos(left)[0])) left = pre;
     });
     return left;
   }
@@ -3196,13 +3268,14 @@
     var name = props.name, sid = name.slice('space-switcher-'.length);
     var own = tabsReordered();
     if (!THEME.iconsNav && !own) return;
+    /* the tab refs (also for icons nav: right from a bar button left of the tabs) */
+    var orig = props.ref;
+    props.ref = tabRefFns[sid] = tabRefFns[sid] || function (inst) {
+      if (inst) T.tabRefs[sid] = inst; else if (T.tabRefs[sid]) delete T.tabRefs[sid];
+      if (inst && !T.done['tab ref ' + sid]) done('tab ref ' + sid + ' (focus ' + typeof inst.focus + ')');
+      if (typeof orig === 'function') orig(inst); else if (orig && typeof orig === 'object') orig.current = inst;
+    };
     if (own) {
-      var orig = props.ref;
-      props.ref = tabRefFns[sid] = tabRefFns[sid] || function (inst) {
-        if (inst) T.tabRefs[sid] = inst; else if (T.tabRefs[sid]) delete T.tabRefs[sid];
-        if (inst && !T.done['tab ref ' + sid]) done('tab ref ' + sid + ' (focus ' + typeof inst.focus + ')');
-        if (typeof orig === 'function') orig(inst); else if (orig && typeof orig === 'object') orig.current = inst;
-      };
       props.onRightKeyDown = tabRightKeys[name] = tabRightKeys[name] || function (e) {
         var r = tabStep(name, 1, e);
         return r === null ? true : r;
@@ -3303,6 +3376,8 @@
     var b = T.barBox && T.barBox[pre];
     return !!(THEME.iconsNav && THEME[pre + 'On'] && b && b[1] > 130 && T.iconRefs && T.iconRefs[pre]);
   }
+  /* a bar button that takes the icons' path */
+  function barNav(pre) { return barOut(pre) || barLeftOfTabs(pre); }
   function iconPos(pre) {
     var b = T.barBox && T.barBox[pre];
     return ICON_X[pre] == null && b ? [b[0], b[1]] : iconScreen(pre);
@@ -3346,7 +3421,7 @@
   /* nearest icon from point p in a direction (along it + 2x across it) */
   function nearest(p, dir, skip, only, withBar) {
     var best = null, score = 1e9, list = shownIcons();
-    if (withBar) ['powerBtn', 'trophyBtn'].forEach(function (b) { if (barOut(b)) list.push(b); });
+    if (withBar) ['powerBtn', 'trophyBtn'].forEach(function (b) { if (barNav(b)) list.push(b); });
     list.forEach(function (pre) {
       if (pre === skip || (only && !only(pre))) return;
       var q = iconPos(pre), dx = q[0] - p[0], dy = q[1] - p[1];
@@ -3377,8 +3452,8 @@
         if (pressed(e)) { tabMoveSound(1); T.fromRowIcon = null; focusRow(); }
         return false;
       }
-      var lot = ICON_X[pre] != null && leftOfTabs(pre);
-      var p = iconPos(pre), n = nearest(p, dir, pre, lot && dir === 'right' ? leftOfTabs : null, true);
+      var lot = anyLeftOfTabs(pre);
+      var p = iconPos(pre), n = nearest(p, dir, pre, lot && dir === 'right' ? anyLeftOfTabs : null, true);
       if (dir === 'up' || dir === 'down') {
         var along = dir === 'down' ? rowMid() - p[1] : p[1] - rowMid();
         if (along > 20 && rowBeside(p) && (!n.pre || along < n.score)) {
@@ -3394,8 +3469,16 @@
         if (pressed(e)) { tabMoveSound(dir === 'left' ? -1 : dir === 'right' ? 1 : 0); focusIcon(n.pre); }
         return false;
       }
-      /* left of the tabs: right goes to the tabs (rightCandidate of its layer) */
-      if (dir === 'right' && lot) return true;
+      /* left of the tabs: right goes to the tabs (rightCandidate of its
+         layer; a bar button has none: the first tab on screen by its ref) */
+      if (dir === 'right' && lot) {
+        if (ICON_X[pre] != null) return true;
+        var ft = T.tabRefs && T.tabRefs[spaceOrder()[0]];
+        if (!ft || typeof ft.focus !== 'function') return true;
+        take(e);
+        if (pressed(e)) { tabMoveSound(1); try { ft.focus(); } catch (err) { log('icons: tab focus failed: ' + err); } }
+        return false;
+      }
       /* nothing on the right of an icon left of the row: the row */
       if (dir === 'right' && p[0] + 52 < rowStartX() && p[1] > 130) {
         take(e);
@@ -3615,7 +3698,7 @@
     var f = barKeyFns[k];
     if (f && f.orig === orig) return f;
     f = function (e) {
-      if (!taken(e) && barOut(pre)) return iconKey(pre, dir).apply(this, arguments);
+      if (!taken(e) && barNav(pre)) return iconKey(pre, dir).apply(this, arguments);
       if (!taken(e) && dir === 'right' && T.fromRowIcon === pre) {
         take(e);
         if (pressed(e)) { tabMoveSound(1); T.fromRowIcon = null; focusRow(); }
@@ -4168,7 +4251,8 @@
      do). The games can be any installed game: ZhiThemes reads /user/app and
      sends the list as data 'allgames' ({id, name, icon}). */
   var FOLDER = 'ZTFOLDER', folderListeners = [];
-  T.folderSel = '';
+  /* null = the row has not said yet what is selected (after a reload) */
+  T.folderSel = null;
   T.folderOpen = '';   /* foldersOpenWithX: the folder whose strip X opened */
   function stripShown() {
     return !!T.folderSel && !!T.folders[T.folderSel] &&
@@ -4215,6 +4299,30 @@
     if (!Array.isArray(list)) return false;
     for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === id) return true;
     return false;
+  }
+  /* the hub page under a folder is its first game's (same hub URL); a
+     folder's first game is never in the row itself. Hidden while the folder
+     is selected, and after a reload before the row says what is selected
+     (folderSel null) */
+  function folderHubHidden(p) {
+    return !!(T.folderHubs && T.folderHubs[p.hubUrl] && (T.folderSel || T.folderSel === null) && !p.isHubFocused);
+  }
+  var hubGateProps = null;
+  function HubPageGate(props) {
+    var React = T.React, tick = React.useState(0)[1];
+    React.useEffect(function () {
+      var f = function () { tick(function (n) { return n + 1; }); };
+      folderListeners.push(f);
+      return function () { var i = folderListeners.indexOf(f); if (i >= 0) folderListeners.splice(i, 1); };
+    }, []);
+    var el = props.el;
+    if (!el || !el.props) return el || null;
+    var hide = folderHubHidden(el.props);
+    if (hide) {
+      if (!T.done['folder hub hidden (late)']) done('folder hub hidden (late)');
+      return React.cloneElement(el, { style: [el.props.style, { top: 2000 }] });
+    }
+    return el;
   }
   function folderChanged() {
     folderListeners.slice().forEach(function (f) { try { f(); } catch (e) { log('folder listener error: ' + e); } });
@@ -4290,7 +4398,11 @@
     rec.hubAppUri = first && first.hubAppUri ? first.hubAppUri
                   : (f.space === 'media' ? 'psmediahub:main?titleId=' : 'pshome:gamehub?titleId=') + gid;
     T.folderHubs = T.folderHubs || {};
-    T.folderHubs[rec.hubAppUri] = true;
+    if (!T.folderHubs[rec.hubAppUri]) {
+      T.folderHubs[rec.hubAppUri] = true;
+      /* the hub page gate decides again (HubPageGate) */
+      setTimeout(folderChanged, 0);
+    }
     rec.icon0PathWithTs = icon;
     rec.localConceptId = 'cid:local:' + FOLDER + n;
     rec.sndPathWithTs = null;
@@ -8055,10 +8167,18 @@
     children.push(React.createElement(rn.View, { key: 'n' },
                                       nameShadow ? [nameShadow, React.createElement(rn.Text, nameProps)]
                                                  : React.createElement(rn.Text, nameProps)));
+    /* the layout caps a text at the width of its box, so a name longer than
+       userWidth was cut ("Name...") instead of growing away from the aligned
+       side. The drawn box is a screen wide and only its aligned edge (or its
+       centre) sits where the userWidth box has it. */
+    var boxW = THEME.userWidth || 400, wide = 1920;
+    var justify = align(THEME.userAlign, true) || 'flex-start';
+    var boxX = (THEME.userX || 0) - (justify === 'flex-end' ? wide - boxW
+                                    : justify === 'center' ? (wide - boxW) / 2 : 0);
     return React.createElement(rn.View, { pointerEvents: 'none', style: {
-      position: 'absolute', left: THEME.userX, top: THEME.userY,
-      width: THEME.userWidth || 400, flexDirection: 'row', alignItems: 'center',
-      justifyContent: align(THEME.userAlign, true) || 'flex-start' } }, children);
+      position: 'absolute', left: Math.round(boxX), top: THEME.userY,
+      width: wide, flexDirection: 'row', alignItems: 'center',
+      justifyContent: justify } }, children);
   }
   /* ---- fake title ----
      Drawn in the Home's front layer (fades out as the Home goes up to the
@@ -10366,6 +10486,35 @@
             done('media hub hidden (' + props.testID + ')');
             return null;
           }
+          /* the poster's name looks like the game hub's title: it stood at
+             the same stock x as the game title (172) but was not moved by
+             titleX/Y, size, colour, font */
+          if (props.testID === 'poster-main-text' && !props.__ztPosterLook) {
+            props.__ztPosterLook = true;
+            var pl = {};
+            if (THEME.titleX || THEME.titleY) pl.transform = [{ translateX: THEME.titleX || 0 }, { translateY: THEME.titleY || 0 }];
+            var pfs = fontSize(THEME.titleFontSize);
+            if (pfs) pl.fontSize = pfs;
+            if (THEME.titleColor) pl.color = THEME.titleColor;
+            if (THEME.titleFontStyle) merge(pl, fontStyle(THEME.titleFontStyle));
+            if (Object.keys(pl).length) {
+              props.style = [props.style, pl];
+              if (!T.done['media title look']) done('media title look (' + JSON.stringify(pl).slice(0, 120) + ')');
+            }
+          }
+          /* fake title on (or no title): the poster's name only in the hub
+             view, like the game title in the game hub (the whole element in
+             an Animated.View, never a View inside the Text) */
+          if (props.testID === 'poster-main-text' && hubTitleGated() && !props.__ztHubTitle &&
+              T.rn && T.rn.Animated && T.rn.Animated.View) {
+            var mop = hubTitleValue();
+            if (mop) {
+              props.__ztHubTitle = true;
+              if (!T.done['media title only in the hub view']) done('media title only in the hub view (' + typeName(type) + ')');
+              return fn(T.rn.Animated.View, { pointerEvents: 'none', style: { opacity: mop },
+                                              children: fn.apply(this, arguments) }, arguments[2]);
+            }
+          }
         }
         if (THEME.hideButtons || THEME.hideMediaButtons) {
           if (hubButtons(props)) return null;
@@ -10499,14 +10648,23 @@
          tile is the small one (MINIMIZED_EXP_SIZE) and adds only shapeExtra *
          minScale -> the name stood far from it. Its child (never the
          title-container View itself) moves back with the Home's lift. */
+      /* only when the PS5's own name margins could not be set
+         (shapeTitleConstants): the old way */
       if (APP === 'home' && props && typeof props === 'object' && props.testID === 'title-container' &&
+          !T.shapeMargins &&
           shapeExtra() && T.homeLift && typeof T.homeLift.interpolate === 'function' && T.rn && T.rn.Animated) {
         /* on the PS5 this translateX counts twice too (-194 moved
            ~388 px, the name sat on the picture); measured on the console
            (106/168 vertical + Steam) the name needs -55 here for the stock
            44 px gap -> the theory's value / 3.5 */
         var back = Math.round(shapeExtra() * ((T.minScale > 0 ? T.minScale : 80 / THEME.focusSize) - 1) / 3.5);
-        if (!T.done['tile name in the hub view']) done('tile name in the hub view (' + back + ' px)');
+        if (!T.done['tile name in the hub view']) {
+          var tcs = props.style && typeof props.style === 'object' && !Array.isArray(props.style) ? props.style : null;
+          done('tile name in the hub view (' + back + ' px; container ' +
+               (tcs ? JSON.stringify({ top: tcs.top, left: tcs.left, height: tcs.height, width: tcs.width,
+                                       justifyContent: tcs.justifyContent, alignItems: tcs.alignItems }) : typeof props.style) + ')');
+        }
+        if (!T.done['shape title margins missing']) done('shape title margins missing: name moved by a translate');
         props.children = fn(T.rn.Animated.View, {
           style: { flexDirection: 'row', alignItems: 'center',
                    transform: [{ translateX: T.homeLift.interpolate({ inputRange: [-150, 0], outputRange: [back, 0], extrapolate: 'clamp' }) }] },
@@ -10568,10 +10726,18 @@
           hubFocusRelay(props);
           /* the hub page under a folder (its first game's): out of the screen */
           /* (not once the focus is in it: down from the folder goes there) */
-          if (T.folderHubs && T.folderHubs[props.hubUrl] && T.folderSel && !props.isHubFocused) {
+          /* after a reload, before the row says what is selected (folderSel
+             null): hidden too; a folder's first game is never in the row
+             itself, so that page is the folder's. It showed the first game's
+             title over the folder title for a moment */
+          if (folderHubHidden(props)) {
             props.style = [props.style, { top: 2000 }];
             if (!T.done['folder hub hidden']) done('folder hub hidden');
           }
+          /* decided again when the folders change: after a reload the page
+             was drawn before the folder existed and was not drawn again for
+             seconds (the first game's title over the folder title) */
+          if (THEME.folders && T.React && typeof T.React.useState === 'function') hubGateProps = props;
         }
         tabItem(props);
         tabSeen(props);
@@ -10740,6 +10906,11 @@
         props.children = front.length ? children.concat(single('front', homeLayer('theme-layer-front', readyGate(front))))
                                       : children;
       }
+      if (hubGateProps && hubGateProps === props) {
+        hubGateProps = null;
+        try { return fn(HubPageGate, { el: fn.apply(this, arguments) }, arguments[2]); }
+        catch (e) { T.errors++; log('hub page gate: ' + e); }
+      }
       return fn.apply(this, arguments);
     };
     wrapped.__theme = true;
@@ -10747,7 +10918,8 @@
   }
   function hookJsx(exp) {
     if (!T.Fragment && exp && exp.Fragment) T.Fragment = exp.Fragment;
-    var needed = (APP === 'home' && !PLAIN) || APP === 'library' || SYS_APP || (APP === 'media' && (THEME.hideMediaButtons || THEME.hideHints)) || THEME.measureScreen || DEBUG.on || titleMode() !== 'game' || THEME.fontStyle ||
+    var needed = (APP === 'home' && !PLAIN) || APP === 'library' || SYS_APP || (APP === 'media' && (THEME.hideMediaButtons || THEME.hideHints || THEME.titleX || THEME.titleY ||
+                                                                                             THEME.titleFontSize || THEME.titleColor || THEME.titleFontStyle)) || THEME.measureScreen || DEBUG.on || titleMode() !== 'game' || THEME.fontStyle ||
                  THEME.tileNameFontStyle || THEME.searchIcon || THEME.settingsIcon ||
                  THEME.searchDetached || THEME.settingsDetached || THEME.profileDetached || THEME.iconsNav ||
                  THEME.fakeTrophies || THEME.folders || THEME.menuMove || THEME.menuNoDim ||
@@ -11296,6 +11468,8 @@
       if (APP === 'media') {
         findReact(exp);
         if (!T.libRN && 'AppRegistry' in exp && exp.AppState) T.libRN = exp;
+        /* Animated for the poster name (fake title: only in the hub view) */
+        if (!T.rn && 'AppRegistry' in exp && exp.Animated) T.rn = exp;
         hookJsx(exp);
         return;
       }
@@ -11308,6 +11482,7 @@
       findReact(exp);
       rowConstants(exp);
       verticalConstants(exp);
+      shapeTitleConstants(exp);
       topConstants(exp);
       springs(exp);
       moveIcons(exp);

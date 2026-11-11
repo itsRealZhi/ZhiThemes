@@ -1269,6 +1269,7 @@
   function setField(key, value) {
     var b = block(source);
     if (!b) return;
+    var keep = BAR_BTN_KEYS.test(key) ? barBtnSpans() : null;
     var now = Date.now();
     if (now - lastPush > 700) { history.push(source); if (history.length > 100) history.shift(); }
     lastPush = now;
@@ -1277,6 +1278,39 @@
       return m && m[2] === key ? m[1] + m[2] + m[3] + value + m[5] + (m[6] || '') : line;
     }).join('\n');
     source = source.slice(0, b.from) + body + source.slice(b.to);
+    if (keep) barBtnKeep(keep, key);
+  }
+  /* The extra bar buttons sit in one row packed to the right (Search side:
+     controller, trophies, power) and their X is an offset from their place
+     in that row: turning one on, or the controller getting wider, pushed the
+     ones on its left (power went off the left edge). Their X takes the
+     opposite shift so they stay where they were on the screen. */
+  var BAR_BTN_KEYS = /^(powerBtnOn|trophyBtnOn|padInfoOn|padInfoSize|padInfoBattery|padInfoFontSize)$/;
+  function barBtnSpans() {
+    var c = values().cur, out = {}, sum = 0;
+    BAR_BTNS.forEach(function (id) {
+      var on = !!c[BY[id].toggle];
+      out[id] = { on: on, before: sum };
+      if (on) sum += barBtnW(id, c);
+    });
+    return out;
+  }
+  function barBtnKeep(old, key) {
+    var now = barBtnSpans(), c = values().cur;
+    BAR_BTNS.forEach(function (id) {
+      var e = BY[id];
+      if (key.indexOf(id) === 0 || !old[id].on || !now[id].on) return;
+      var d = now[id].before - old[id].before;
+      if (!d) return;
+      var nx = Math.round(num(c[e.mx]) + d);
+      setField(e.mx, String(nx));
+      /* the X cards already on the page show the new value */
+      document.querySelectorAll('.card[data-key="' + e.mx + '"] input').forEach(function (i) {
+        if (i.type === 'range' && nx < Number(i.min)) i.min = nx;
+        if (i.type === 'range' && nx > Number(i.max)) i.max = nx;
+        if (i.type === 'range' || i.type === 'number') i.value = nx;
+      });
+    });
   }
   /* a new font: its styles without a file of their own stay in that font
      (systemFontMissing 'same'), not the system SST; themes from before
@@ -5446,6 +5480,23 @@
   }
   /* the extra bar buttons, nearest to Search first */
   var BAR_BTNS = ['padInfo', 'trophyBtn', 'powerBtn'];
+  /* the stock icons still drawn in the bar row, as theme.js decides it
+     (outOfBar: detached, lower than the bar, or left of the tabs with
+     iconsNav); places as theme.js ICON_X */
+  var BAR_ICON_X = { search: 1358, settings: 1462, profile: 1566 };
+  function barIconsInBar(c) {
+    var on = function (k) { return c[k] === true || c[k] === 'true'; };
+    var part = { center: 0.5, right: 1, left: 0 }[c.tabsAlign || (on('tabsCenter') ? 'center' : '')];
+    var start = 84 + num(c.tabsX);
+    if (part > 0) start += ((num(c.tabsWidth) > 0 ? num(c.tabsWidth) : 1752) - 600) * part;
+    var nav = c.iconsNav !== false && c.iconsNav !== 'false';
+    return ['search', 'settings', 'profile'].filter(function (p) {
+      if (on('hide' + p.charAt(0).toUpperCase() + p.slice(1)) || on(p + 'Detached')) return false;
+      var y = 35 + num(c.iconsY) + num(c[p + 'Y']);
+      var x = BAR_ICON_X[p] + num(c.iconsX) - num(c.clockGap) + num(c[p + 'X']);
+      return !(nav && (y > 130 || x + 52 < start));
+    });
+  }
   function barBtnW(id, c) {
     if (id !== 'padInfo') return 104;
     /* as theme.js: padding 16 + icon + battery slot + % slot + padding 16 */
@@ -5484,6 +5535,17 @@
        controller, trophies, power); each one moves by its own X/Y */
     if (e.barBtn && !measured) {
       var sb = box(BY.search, v).b, bx = sb[0];
+      /* Search not in the bar (hidden, or moved out of it: lower than the bar,
+         left of the tabs, detached): on the PS5 it draws nothing there and the
+         buttons end where the first icon still in the bar starts (the bar is
+         packed to the right, the clock at 1670). Before, they were placed from
+         Search's old place: a theme with Search hidden and Settings left of the
+         tabs had the Trophies button drawn off the left edge here */
+      var inBar = barIconsInBar(c);
+      if (inBar.indexOf('search') < 0) {
+        bx = 1670 - 104 * inBar.length + num(c.iconsX) - num(c.clockGap) + num(c.searchX);
+        sb = [bx, 35 + num(c.iconsY) + num(c.searchY)];
+      }
       for (var bi = 0; bi < BAR_BTNS.length; bi++) {
         var be = BY[BAR_BTNS[bi]];
         if (!c[be.toggle]) continue;

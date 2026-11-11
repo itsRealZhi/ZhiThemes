@@ -1,4 +1,4 @@
-/* ZhiThemes â€” PS5 Home theme engine.
+/* ZhiThemes — PS5 Home theme engine.
    Copyright (C) 2026 Zhi (ZhiThemes author)
 
 This program is free software; you can redistribute it and/or modify it
@@ -14,7 +14,7 @@ keep the author attribution).  */
 #define ZT_NAME "ZhiThemes"
 #define ZT_AUTHOR "Zhi"
 #define ZT_VERSION "0.1.0-alpha"
-#define ZT_BUILD 364
+#define ZT_BUILD 373
 #define ZT_STR2(x) #x
 #define ZT_STR(x) ZT_STR2(x)
 #define ZT_BUILD_TEXT ZT_STR(ZT_BUILD)
