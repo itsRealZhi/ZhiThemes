@@ -66,17 +66,17 @@ Extras → Animations (all on by default except *Button bounce*, all native-driv
 
 - **Focused tile** (Game row, `focusShape`): the row stays square 1:1 or vertical 2:3 (`tileVertical`), the focused tile can take another shape: *as the row*, *Vertical 2:3* (square row only) or *Steam horizontal 92:43*. It keeps the focused height and its width changes; the next tiles and the game name move with it. Every focused tile takes it: the game's own picture of that shape if it has one, else its picture cut to the shape.
 - **Folders on the Steam tile** (`foldersHorizontal`): *Covers in a row* (2:3 covers), *Square icons in a row*, *Covers overlapping* or *Square icons (2 rows)*, up to 7 games. The vertical 2:3 focused tile follows `foldersVertical`.
-- **Tiles tab:** click a game to see its four formats (Square, Vertical, Steam, Background). Each one: search SteamGridDB, click a picture, Download. For a background the full picture is downloaded first, you choose the 16:9 part with the slider, then it is saved as 1920×1080.
-- Tile pictures are always saved as PNG (the folder pictures on the PS5 read PNG only); older JPEG pictures are converted when the Tiles tab opens.
+- **Pictures tab:** click a game to see its four formats (Square, Vertical, Steam, Background). Each one: search SteamGridDB, click a picture, Download. For a background the full picture is downloaded first, you choose the 16:9 part with the slider, then it is saved as 1920×1080.
+- Tile pictures are always saved as PNG (the folder pictures on the PS5 read PNG only); older JPEG pictures are converted when the Pictures tab opens.
 
 ## Game logo
 
-- **Pictures** (Tiles tab, format *Logo*): upload a PNG or download a SteamGridDB logo; transparent margins are cut. Saved on the PS5 as `customtile/<titleId>_logo_<n>.png`; the one in use is `ID/logo:n` in `customTileChoice` (0 = no logo, not listed = the first).
+- **Pictures** (Pictures tab, format *Logo*): upload a PNG or download a SteamGridDB logo; transparent margins are cut. Saved on the PS5 as `customtile/<titleId>_logo_<n>.png`; the one in use is `ID/logo:n` in `customTileChoice` (0 = no logo, not listed = the first).
 - **Options** (Games row → Game logo, or the *Game logo* element in the Screen tab): `logoOn`, the box `logoX` / `logoY` / `logoWidth` / `logoHeight` (the logo fits inside keeping its shape), `logoAlign` (left / center / right), `logoVAlign` (top / center / bottom), `logoOpacity`, `logoHidesTitle` (off by default; on: with the fake title on, a game with a logo shows only the logo).
 
 ## Animated pictures
 
-- **Tiles and backgrounds** (Tiles tab): tick *Animated only* next to Search for SteamGridDB's animated pictures, or upload an animated WebP / APNG or a video (MP4, WebM, up to 15 s). A picture of another shape opens the cropper. The PS5 gets `<titleId>_<format>_<n>.png` (still, first frame) and `<titleId>_<format>_<n>.mp4` next to it (customtile for tiles, custombg for backgrounds). Use Chrome or Edge (they make the MP4) and keep the tab in front while the video is made.
+- **Tiles and backgrounds** (Pictures tab): tick *Animated only* next to Search for SteamGridDB's animated pictures, or upload an animated WebP / APNG or a video (MP4, WebM, up to 15 s). A picture of another shape opens the cropper. The PS5 gets `<titleId>_<format>_<n>.png` (still, first frame) and `<titleId>_<format>_<n>.mp4` next to it (customtile for tiles, custombg for backgrounds). Use Chrome or Edge (they make the MP4) and keep the tab in front while the video is made.
 - **On the Home** (`tileAnimOn`, on by default): the focused tile plays its video (the highlighted game in an open folder too); a game background with a video plays behind the Home while that game is focused, unless your wallpaper is on.
 - **Experimental tab:** `tileAnimAll` makes every tile with a video move; `tileAnimAllMax` (6) is how many play at once (the focused one always).
 - **Logos** are still pictures: an animated logo gives its first frame (the PS5 has no video with transparency).

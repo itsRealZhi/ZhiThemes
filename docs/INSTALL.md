@@ -4,7 +4,7 @@
 
 - A PS5 with a jailbreak that runs ELF payloads: kstuff loaded and an ELF loader listening (for example elfldr on port 9021). ZhiThemes does not include an exploit.
 - **Not together with other HENs, for now:** ZhiThemes does not run while etaHEN, OnionHEN or AniketosHEN (or Yoncore, kylin-core, wmdw-jwm, CheatRunner) is loaded: they also load into the Home, and two of them crash it. ZhiThemes then does not load and shows a notification. Use kstuff + an ELF loader only.
-- Firmware: tested on **9.60**. Other firmwares may work partly or not at all; see [LOGS.md](LOGS.md) to help test them.
+- Firmware: made and tested on **9.60**, and confirmed working on **13.60**. Other firmwares may work partly or not at all; see [LOGS.md](LOGS.md) to help test them.
 - A PC or phone on the same network, with a modern browser (Chrome, Edge, Firefox, Safari).
 
 ## First start
@@ -21,7 +21,7 @@ The first time, ZhiThemes creates `/data/ZhiThemes/` and starts **off** (*PS5 de
 
 ZhiThemes lives in memory. After a reboot the PS5 is stock again: send `ZhiThemes.elf` again (or add it to your autoload). Your theme and files stay in `/data/ZhiThemes/`.
 
-When the PS5 comes back from rest mode, ShellUI restarts. ZhiThemes stays running in the background and loads the theme again on its own.
+Rest mode keeps the theme: ShellUI does not restart, so the Home comes back as you left it. If ShellUI itself restarts (for example after a crash), ZhiThemes is still running in the background and loads the theme again on its own.
 
 ## Update
 
@@ -58,8 +58,9 @@ Send the new `ZhiThemes.elf`. It asks the running copy to remove its hooks, stop
 | `Assets/particles/` | textures of the built-in particle styles, written by ZhiThemes at start |
 | `Assets/cache/` | made by ZhiThemes (folder mosaics, tall icons); safe to delete |
 | `Logs/` | logs (see [LOGS.md](LOGS.md)) |
+| `Dumps/<firmware>/` | the screen dump and, with debug mode, the colour and shape tokens of this firmware |
 | `steamgrid.key` | your SteamGridDB API key, if you entered one (never put in a theme) |
-| `watcher.pid` | the running payload's process id |
+| `watcher.pid`, `inject_count`, `inject_delay`, `debug.on`, `session.open` | small state files of ZhiThemes; leave them alone |
 
 Everything in `Assets/` is yours and the same in every theme. Deleting a theme in the editor deletes its `.ztheme` and its folder. A file two themes share (same bytes) is stored once on the PS5. Files from older versions are moved here automatically on the first start.
 

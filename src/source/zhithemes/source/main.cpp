@@ -327,9 +327,9 @@ int inject_delay() {
 
 /* how many modules went into this ShellUI. On 28/10 and 04/11 the console crashed after the 6th injection in a row into the same
    ShellUI, with no error in the log (memory not given back on unload is the
-   suspect). Logs/inject_count holds "<pid> <count> <boot time>"; a new
+   suspect). inject_count holds "<pid> <count> <boot time>"; a new
    ShellUI (or a reboot that reuses the pid) starts again at 1. */
-constexpr const char *kCountFile = "/user/data/ZhiThemes/Logs/inject_count";
+constexpr const char *kCountFile = "/user/data/ZhiThemes/inject_count";
 constexpr int kInjectWarn = 4;
 
 long boot_time() {

@@ -20,7 +20,10 @@ later version. See LICENSE and NOTICE.  */
  *   crash-<date>.log         a session that ended without closing while
  *                            debug mode was on (crash, rest mode, power off)
  *   payload.log              the ZhiThemes.elf payload (injector/watcher)
- *   debug.on                 debug mode is on ("1", or "1 sys")
+ *   boot.log                 one line per start-up step of the module
+ * Only the 2 newest debug-* and crash-* logs are kept. The state files
+ * (debug.on, session.open, inject_count) are beside Logs/, not in it; the
+ * token lists of debug mode go to Dumps/<firmware>/.
  * Every session starts with a header: ZhiThemes version and firmware.
  */
 

@@ -20,7 +20,7 @@ later version. See LICENSE and NOTICE.  */
      (sceKernelGetCpuUsage, two samples)
    - cpuT / socT: sceKernelGetCpuTemperature / SocSensorTemperature(0)
    - fan: sceKernelGetCurrentFanDuty (raw / 1024)
-   - up: system uptime; mod: this module's age; loads: logs/inject_count */
+   - up: system uptime; mod: this module's age; loads: inject_count */
 
 #include "zt_stats.hpp"
 #include "zt_paths.hpp"
@@ -144,7 +144,7 @@ double cpu_usage() {
 }
 
 int inject_count() {
-  const int fd = open(ZT_LOGS "/inject_count", O_RDONLY);
+  const int fd = open(ZT_DIR "/inject_count", O_RDONLY);
   if (fd < 0)
     return 0;
   char buf[64] = {};

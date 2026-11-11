@@ -10,10 +10,10 @@ In the editor: the **Logs** tab. On the PS5: **`/data/ZhiThemes/Logs/`** (over F
 | `previous.log` | the session before: **look here after a crash** |
 | `payload.log` | `ZhiThemes.elf` itself: injection, ShellUI restarts, safe mode |
 | `boot.log` | one line per start-up step of the module; if ShellUI crashes before `zhithemes.log` starts, its last line shows where |
-| `old-*` | logs and dumps of versions before 0.1.0 (moved from `rnps_dump/`), can be deleted |
-| `debug-<date>.log` | saved when you stop debug mode (last 5 kept) |
-| `crash-<date>.log` | a session that did not close while debug mode was on (crash, rest mode or power off; last 5 kept) |
-| `tokens_color.txt`, `tokens_shape.txt` | with debug mode: every colour and shape token of this firmware |
+| `debug-<date>.log` | saved when you stop debug mode (the 2 newest are kept) |
+| `crash-<date>.log` | a session that did not close while debug mode was on (crash, rest mode or power off; the 2 newest are kept) |
+
+With debug mode on, every colour and shape token of this firmware is also written to **`/data/ZhiThemes/Dumps/<firmware>/`** (`tokens_color.txt`, `tokens_shape.txt`), next to the screen dump. Get them over FTP, or with Options > 🎨 ZhiThemes > Tools (copy the screen dump to a USB drive).
 
 Every session starts with a header like this (write your PS5 model in your report):
 
@@ -47,13 +47,13 @@ The logs may contain your PSN user name and the names of your games; edit them o
 
 ## Other firmwares
 
-ZhiThemes was made and tested on **9.60**. It looks for the parts of the Home by their shape rather than by fixed numbers, and checks the parts it changes natively (for example the focus frame) before touching them. On another firmware the usual result is that **some options do nothing**, not a crash. But it has not been tested.
+ZhiThemes was made and tested on **9.60**, and is confirmed working on **13.60**. It looks for the parts of the Home by their shape rather than by fixed numbers, and checks the parts it changes natively (for example the focus frame) before touching them. On another firmware the usual result is that **some options do nothing**, not a crash. But other firmwares have not been tested.
 
 To help test a firmware:
 
 1. Turn on debug mode with "also map Settings and Trophies" ticked.
 2. Visit the Home, a game hub, the Game Library, Settings and Trophies.
-3. Turn debug mode off and send the `debug-*.log`, `tokens_color.txt` and `tokens_shape.txt` in an issue titled `Firmware X.XX report`.
+3. Turn debug mode off and send the `debug-*.log`, plus `tokens_color.txt` and `tokens_shape.txt` from `Dumps/<firmware>/`, in an issue titled `Firmware X.XX report`.
 
 Useful lines in a log:
 

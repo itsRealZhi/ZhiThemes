@@ -29,17 +29,18 @@ later version. See LICENSE and NOTICE.  */
 
 namespace {
 
-constexpr const char *kLogDir = ZT_LOGS; /* Logs/ (logs/ before) */
+constexpr const char *kLogDir = ZT_LOGS;
 constexpr const char *kLog = ZT_LOGS "/zhithemes.log";
 constexpr const char *kPrevious = ZT_LOGS "/previous.log";
-constexpr const char *kDebugFlag = ZT_LOGS "/debug.on";
+/* small state files, kept beside Logs/ so that folder holds only logs */
+constexpr const char *kDebugFlag = ZT_DIR "/debug.on";
 /* written at the start, deleted at a clean end: still there at the next
    start = the session before did not close */
-constexpr const char *kOpenMark = ZT_LOGS "/session.open";
+constexpr const char *kOpenMark = ZT_DIR "/session.open";
 /* past this the log starts again (the start of it kept as previous.log) */
 constexpr off_t kMaxLog = 8 << 20;
 /* debug-*.log and crash-*.log kept of each kind */
-constexpr size_t kKeepSaved = 5;
+constexpr size_t kKeepSaved = 2;
 
 std::mutex g_lock;
 timespec g_start = {};
@@ -48,42 +49,9 @@ int g_debug = -1; /* -1 = not read yet, 0 off, 1 on, 2 on + sys */
 std::string g_fw;
 unsigned g_fw_hex = 0;
 
-/* logs/ -> Logs/ (the folder renamed, or file by file when the
-   payload already made Logs/; a name already in Logs/ stays) */
-void move_old_logs() {
-  static bool done = false;
-  if (done)
-    return;
-  done = true;
-  const std::string old = ZT_DIR "/logs";
-  struct stat st;
-  if (stat(old.c_str(), &st) != 0 || !S_ISDIR(st.st_mode))
-    return;
-  if (stat(kLogDir, &st) != 0 && rename(old.c_str(), kLogDir) == 0)
-    return;
-  mkdir(kLogDir, 0777);
-  if (DIR *d = opendir(old.c_str())) {
-    std::vector<std::string> names;
-    while (dirent *e = readdir(d))
-      if (strcmp(e->d_name, ".") != 0 && strcmp(e->d_name, "..") != 0)
-        names.push_back(e->d_name);
-    closedir(d);
-    for (const std::string &n : names) {
-      const std::string from = old + "/" + n;
-      std::string to = std::string(kLogDir) + "/" + n;
-      if (stat(to.c_str(), &st) == 0)
-        to = std::string(kLogDir) + "/old-" + n; /* the new one stays */
-      if (rename(from.c_str(), to.c_str()) != 0)
-        unlink(from.c_str());
-    }
-  }
-  rmdir(old.c_str());
-}
-
 void ensure_dir() {
   mkdir("/user/data", 0777);
   mkdir(ZT_DIR, 0777);
-  move_old_logs();
   mkdir(kLogDir, 0777);
 }
 
@@ -135,27 +103,6 @@ void prune(const char *prefix) {
   std::sort(names.begin(), names.end()); /* names carry the date: oldest first */
   for (size_t i = 0; i + kKeepSaved < names.size(); ++i)
     unlink((std::string(kLogDir) + "/" + names[i]).c_str());
-}
-
-/* In older versions the logs and dumps were in rnps_dump/: everything goes to
-   logs/ as old-<name> (shown in the editor's Logs tab) and the folder goes. */
-void move_rnps_dump() {
-  const std::string old = ZT_DIR "/rnps_dump";
-  DIR *d = opendir(old.c_str());
-  if (!d)
-    return;
-  std::vector<std::string> names;
-  while (dirent *e = readdir(d))
-    if (e->d_name[0] != '.')
-      names.push_back(e->d_name);
-  closedir(d);
-  for (const std::string &n : names) {
-    const std::string from = old + "/" + n;
-    const std::string to = std::string(kLogDir) + "/old-" + n;
-    if (rename(from.c_str(), to.c_str()) != 0)
-      unlink(from.c_str());
-  }
-  rmdir(old.c_str());
 }
 
 void read_debug_flag() {
@@ -256,7 +203,6 @@ void zt_log_session_start(const char *fw_text, unsigned fw_hex) {
         g_fw.erase(0, 1);
     }
     read_debug_flag();
-    move_rnps_dump();
     const bool unclosed = file_size(kOpenMark) >= 0;
     /* the session before becomes previous.log; while debugging, one that
        did not close is also kept as a crash log */

@@ -627,7 +627,7 @@
   };
   /*
    * System colour tokens (native; applied by ZhiThemes when the Home starts).
-   * The existing names are in /data/ZhiThemes/Logs/tokens_color.txt (debug mode)
+   * The existing names are in /data/ZhiThemes/Dumps/<firmware>/tokens_color.txt (debug mode)
    * (written the first time). Format: 'token.name': '#rrggbb' or
    * '#rrggbbaa'. Removing a line restores the stock colour.
    */
@@ -639,7 +639,7 @@
   if (typeof globalThis.__ztFavorites === 'string') THEME.favorites = globalThis.__ztFavorites;
   /* "home", "hub" or "library": ZhiThemes sets it before running this file */
   var APP = globalThis.__themeApp || '?';
-  /* debug mode (editor's Logs tab, kept by ZhiThemes in logs/debug.on, not in
+  /* debug mode (editor's Logs tab, kept by ZhiThemes in debug.on, not in
      the theme): on = the keys, the screen map and the folders go to the log;
      sys = also what Settings and Trophies are made of (slow) */
   var DEBUG = globalThis.__ztDebug || {};

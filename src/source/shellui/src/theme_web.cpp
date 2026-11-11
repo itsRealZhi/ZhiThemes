@@ -1119,7 +1119,7 @@ void handle(int fd) {
   if (method == "POST" && path == "/logs/delete") {
     const std::string name = url_decode(query_value(query, "name"));
     const std::string file = zt_log_path(name);
-    if (file.empty() || name == "zhithemes.log" || name == "debug.on" || name == "session.open")
+    if (file.empty() || name == "zhithemes.log")
       return reply(fd, 400, "Bad Request", "text/plain", "cannot delete that");
     unlink(file.c_str());
     return reply(fd, 200, "OK", "text/plain", "deleted");

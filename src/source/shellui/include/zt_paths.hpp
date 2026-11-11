@@ -17,11 +17,12 @@ later version. See LICENSE and NOTICE.  */
 #endif
 
 /* /data/ZhiThemes holds only these three folders and a few small
-   files (active_theme.txt, steamgrid.key, watcher.pid, inject_delay):
+   files (active_theme.txt, steamgrid.key, watcher.pid, inject_delay,
+   inject_count, debug.on, session.open):
      Assets/  the user's own files, shared by every theme (custom tiles,
               game backgrounds, folder icons, avatars, cache)
      Themes/  <Name>.ztheme + <Name>/ (wallpapers, icons, fonts of that theme)
-     Logs/    the logs (logs/ in older versions) */
+     Logs/    the logs */
 #define ZT_ASSETS ZT_DIR "/Assets"
 #define ZT_THEMES ZT_DIR "/Themes"
 #define ZT_LOGS ZT_DIR "/Logs"

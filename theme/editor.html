@@ -455,7 +455,7 @@
   <span id="fwinfo" title="PS5 firmware and ZhiThemes version"></span>
   <span id="status"><span id="statusTxt">loading…</span><i id="stBar"></i></span>
   <span class="sep"></span>
-  <label class="btn advsw" title="Advanced: every field in each tab and Visual module, marked with an Advanced label. Off: the main fields only (in the Visual tab the rest is under More options)"><input type="checkbox" id="advSwitch"><span class="advtxt">Advanced</span></label>
+  <label class="btn advsw" title="Advanced: every field in each tab and Screen module, marked with an Advanced label. Off: the main fields only (in the Screen tab the rest is under More options)"><input type="checkbox" id="advSwitch"><span class="advtxt">Advanced</span></label>
   <div id="themesWrap">
     <button id="btnThemes" title="The themes on this PS5: switch, make, rename or delete one">Theme: <b id="themeNow">…</b> ▾</button>
     <div id="themesPanel"></div>
@@ -493,7 +493,7 @@
     focusShape: ['Focused tile', 'Shape of the focused tile: as the row, vertical 2:3 (square row) or Steam horizontal 92:43. Every focused tile takes it (same height, other width): the game picture of that shape (Pictures below) or its own picture cut; folders get a mosaic of that shape'],
     tileAnimAll: ['All tiles move', 'Experimental: every tile with an animated picture moves, not only the focused one (one video player each: heavy, can slow the Home)'],
     tileAnimAllMax: ['Most moving tiles', 'Experimental: at most this many tiles move at once (the focused one always)'],
-    debugOverlay: ['Debug panel', 'Experimental: a box on the Home with live numbers (ShellUI fps, console RAM/VRAM, ShellUI free memory, mono, CPU use, temperatures, fan, uptime, loads). Move it in the Visual tab'],
+    debugOverlay: ['Debug panel', 'Experimental: a box on the Home with live numbers (ShellUI fps, console RAM/VRAM, ShellUI free memory, mono, CPU use, temperatures, fan, uptime, loads). Move it in the Screen tab'],
     debugX: ['Debug panel X', 'Distance from the left of the screen'],
     debugY: ['Debug panel Y', 'Distance from the top of the screen'],
     debugFontSize: ['Debug text size', 'Text size of the debug panel'],
@@ -738,7 +738,7 @@
     menuBgOpacity: ['Menu background opacity', 'Only the background, the text stays'],
     menuCorners: ['Menu corners', 'Round corners of the Options menus, px (every menu of the system); 0 = stock, square'],
     menuItemCorners: ['Menu item corners', 'Round corners of the background of the selected item, px; 0 = stock'],
-    menuMove: ['Move the Options menu', 'The tiles\' Options menu opens at its own place (Visual: "Options menu")'],
+    menuMove: ['Move the Options menu', 'The tiles\' Options menu opens at its own place (Screen tab: "Options menu")'],
     menuX: ['Menu X', 'Move it, + = right'],
     menuY: ['Menu Y', 'Move it, + = down; - = up for a low row'],
     menuNoDim: ['No dark screen', 'The screen does not get darker behind the tiles\' Options menu'],
@@ -1050,7 +1050,7 @@
     general: 'General', row: 'Game row', 'tile name': 'Tile name', tabs: 'Tabs', 'top icons': 'Top icons',
     clock: 'Clock', 'game hub': 'Game hub', 'focus frame': 'Focus frame', 'system colours': 'System colours',
     hide: 'Hide', font: 'Font', background: 'Background', shadows: 'Shadows', user: 'User name',
-    logs: 'Visual tab', bars: 'Bars', 'top bar background': 'Top bar background', footer: 'Footer',
+    logs: 'Screen tab', bars: 'Bars', 'top bar background': 'Top bar background', footer: 'Footer',
     boxes: 'Free boxes', folders: 'Folder options', 'options menu': 'Options menu',
     'system screens': 'Settings & Trophies', tiles: 'Custom tiles',
     'own clock': 'Own clock', avatar: 'Avatar', 'native panels': 'Native panels (every system screen)',
@@ -2140,7 +2140,7 @@
     view.appendChild(ta);
   }
   /* ================= Logs tab =================
-     Debug mode (kept by the PS5 in logs/debug.on, never in a theme), this
+     Debug mode (kept by the PS5 in debug.on, never in a theme), this
      PS5's model and firmware, the live log and the saved ones. The same
      files are on the PS5 in /data/ZhiThemes/Logs/ (FTP/USB), for when this
      page cannot be opened. */
@@ -2163,7 +2163,6 @@
     if (name === 'payload.log') return 'ZhiThemes.elf (injection, ShellUI restarts)';
     if (/^debug-/.test(name)) return 'debug session';
     if (/^crash-/.test(name)) return 'did not close while debugging (crash, rest mode or power off)';
-    if (/^tokens_/.test(name)) return 'colours/shapes of this firmware (debug)';
     return '';
   }
   function downloadLog(name) {
@@ -2241,7 +2240,7 @@
     dsec.className = 'section';
     dsec.innerHTML = '<h2>Debug mode</h2><p class="tip">Turn it on, use the PS5 where something goes wrong (Home, a game hub, ' +
       'Settings…), then turn it off: that session is saved as <b>debug-&lt;date&gt;.log</b> to download below. If the PS5 or ' +
-      'the theme crashes while it is on, the log is kept as <b>crash-&lt;date&gt;.log</b>. Every log starts with the ' +
+      'the theme crashes while it is on, the log is kept as <b>crash-&lt;date&gt;.log</b> (the 2 newest of each stay). Every log starts with the ' +
       'firmware and ZhiThemes version, and each line has its time (UTC). The logs are also on the PS5 in ' +
       '<b>/data/ZhiThemes/Logs/</b> (FTP or USB). Debug mode is never saved in a theme.</p>';
     var row = document.createElement('div');
@@ -4051,8 +4050,8 @@
       box.appendChild(tip);
     } else if (k === 'lg') {
       var tl = document.createElement('p'); tl.className = 'tip';
-      tl.textContent = (foldField('logoOn') === 'true' ? 'Shown on the Home' : 'Shown on the Home with "Game logo" on (Game row tab or Visual tab)') +
-        ' at the logo box (drag it in the Visual tab). Transparent margins are cut on download / upload. Logos are still pictures (an animated one gives its first frame: the PS5 has no video with transparency). ' +
+      tl.textContent = (foldField('logoOn') === 'true' ? 'Shown on the Home' : 'Shown on the Home with "Game logo" on (Games row tab or Screen tab)') +
+        ' at the logo box (drag it in the Screen tab). Transparent margins are cut on download / upload. Logos are still pictures (an animated one gives its first frame: the PS5 has no video with transparency). ' +
         (foldField('logoHidesTitle') === 'false' ? '' : 'A game with a logo hides its fake title.');
       box.appendChild(tl);
     } else if (k === 'v' && rowKind() === 'sq' && focusKind() !== 'v') {
@@ -4820,7 +4819,7 @@
       free = games.filter(function (g) {
         return !inside[g.id] && (!q || (g.name + ' ' + g.id).toLowerCase().indexOf(q) >= 0);
       });
-      if (!foldGames.length) grid.innerHTML = '<div class="fold-empty">No games yet: open the Home on the PS5 (ZhiThemes 94 or newer), then Refresh games.</div>';
+      if (!foldGames.length) grid.innerHTML = '<div class="fold-empty">No games yet: open the Home on the PS5, then Refresh games.</div>';
       else if (!free.length) grid.innerHTML = '<div class="fold-empty">' +
         (q ? 'No game matches the search.' : 'Every game is in a folder.') + '</div>';
       var pages = Math.max(1, Math.ceil(free.length / FOLD_PAGE));

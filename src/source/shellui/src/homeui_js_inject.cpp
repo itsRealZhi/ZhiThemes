@@ -95,14 +95,21 @@ std::atomic<int> g_console_lines{0};
  * UISystem.StyleManager.ActiveColorToken(None).TokenDictionary, a
  * Dictionary<string, UIColor>; its entries are rewritten whenever HomeUI
  * starts (a managed thread). In debug mode every colour and shape token is
- * dumped once to logs/tokens_color.txt / tokens_shape.txt.
+ * dumped once to Dumps/<firmware>/tokens_color.txt / tokens_shape.txt.
  */
 constexpr const char *kTokenStroke = "focus.stroke.enabled";
 constexpr const char *kTokenFill = "focus.fill.enabled";
-constexpr const char *kTokenDumpColor =
-    ZT_LOGS "/tokens_color.txt";
-constexpr const char *kTokenDumpShape =
-    ZT_LOGS "/tokens_shape.txt";
+/* Dumps/<firmware>/<name>, beside the screen dump */
+std::string token_dump_path(const char *name) {
+  std::string fw = zt_fw_text();
+  for (char &c : fw)
+    if (!isalnum((unsigned char)c) && c != '.')
+      c = '_';
+  const std::string dir = std::string(ZT_DIR "/Dumps/") + (fw.empty() ? "unknown" : fw);
+  mkdir(ZT_DIR "/Dumps", 0777);
+  mkdir(dir.c_str(), 0777);
+  return dir + "/" + name;
+}
 /* UIColor: float R, G, B, A; bool <HdrColor>k__BackingField (+ padding) */
 constexpr size_t kUiColorBytes = 20;
 
@@ -1644,12 +1651,12 @@ void apply_focus_color(const std::string &script) {
   if (!colours)
     return;
   /* debug mode (Logs tab): every colour and shape token of this firmware
-     goes to logs/, to compare consoles */
+     goes to Dumps/<firmware>/, to compare consoles */
   if (!g_tokens_dumped && zt_debug_on()) {
     g_tokens_dumped = true;
-    dump_tokens(colours, kTokenDumpColor, true);
+    dump_tokens(colours, token_dump_path("tokens_color.txt").c_str(), true);
     if (MonoObject *shapes = token_dictionary(sm, "ActiveShapeToken"))
-      dump_tokens(shapes, kTokenDumpShape, false);
+      dump_tokens(shapes, token_dump_path("tokens_shape.txt").c_str(), false);
   }
 
   const auto channel = [&](const char *key, double fallback) {
@@ -2510,7 +2517,7 @@ void eval_theme(MonoObject *self, const char *app, unsigned hub_id = 0) {
                              "globalThis.__ztUser = " + ascii_js(user_name_js()) + ";\n" +
                              /* favourites are console wide (favorites.txt) */
                              "globalThis.__ztFavorites = \"" + zt_favorites() + "\";\n" +
-                             /* Logs tab: debug mode (logs/debug.on) */
+                             /* Logs tab: debug mode (debug.on) */
                              "globalThis.__ztDebug = {on: " + (zt_debug_on() ? "true" : "false") +
                              ", sys: " + (zt_debug_sys() ? "true" : "false") + "};\n" +
                              "globalThis.__ztCustomTiles = " +
