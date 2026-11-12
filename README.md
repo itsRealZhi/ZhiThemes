@@ -90,9 +90,9 @@ Use **Install** in the editor and pick the file from your PC or phone.
 
 ## Ready-made themes
 
-Don't want to start from zero? There are 9 themes ready to use in [`default_themes/`](default_themes/). Use them as they are, or install one and change it in the editor to make it yours.
+Don't want to start from zero? There are 9 themes ready to use. Use them as they are, or install one and change it in the editor to make it yours.
 
-Get them all in one go with **`ZhiThemes-themes.zip`** on the [Releases](../../releases) page: extract it to the root of a USB drive (it makes `ZhiThemes/Themes/`), plug it in and open **Options > 🎨 ZhiThemes > Themes**. Or get them one by one from the folder (open the `.ztheme` and press **Download raw file**) and install them [like any other theme](#installing-themes).
+Get them in **`ZhiThemes-themes.zip`** on the [Releases](../../releases) page: extract it to the root of a USB drive (it makes `ZhiThemes/Themes/`), plug it in and open **Options > 🎨 ZhiThemes > Themes**. You can also take a single `.ztheme` out of the zip and install it [like any other theme](#installing-themes).
 
 **What does "Banned" mean?** Those themes are made for consoles that are always offline (banned or never connected). They hide the things you can't use without PSN: PS Store, PS Plus, the online parts of the Home, and the bottom part of the game hub. The others keep everything like the stock PS5.
 

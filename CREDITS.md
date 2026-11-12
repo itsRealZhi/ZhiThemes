@@ -20,7 +20,7 @@
 
 ## Example themes
 
-The ready-made themes in [`default_themes/`](default_themes/). Each picture, video and font keeps its own license; the links below are where they come from.
+The ready-made themes in `ZhiThemes-themes.zip` on the Releases page (previews in [`default_themes/previews/`](default_themes/previews/)). Each picture, video and font keeps its own license; the links below are where they come from.
 
 - **KindaSelene**: inspired by [Selene](https://github.com/mattxslv/Selene) by mattxslv. Settings wallpaper: photo by [Liana S](https://unsplash.com/pt-br/@cherstve_pechivo) on [Unsplash](https://unsplash.com/pt-br/fotografias/luz-dourada-brilha-sobre-um-fundo-escuro-q-NZ4eFtYx0).
 - **CleanWaves** (both versions): inspired by [A PlayStation 5 User Interface Concept](https://dribbble.com/shots/14208203-A-PlayStation-5-User-Interface-Concept) on Dribbble. Settings wallpaper: "Abstract Blue Edge" from [wallpapersden.com](https://wallpapersden.com/).
