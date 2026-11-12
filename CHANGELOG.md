@@ -34,6 +34,7 @@ Alpha: made on firmware **9.60** and confirmed working on **13.60**. Other firmw
 - Saves made in quick succession from the editor are spaced out, so the Home is never reloaded while it is still starting.
 - **Several themes on one PS5:** make, rename, switch and delete themes.
 - **Share themes:** *Download* saves one `.ztheme` file with the settings and the wallpaper / video, icons and fonts it uses; *Install* adds someone else's. Your folders and custom pictures are never included.
+- The **ZhiThemes logo** in the editor: header, browser tab icon and the About tab.
 - **Progress bars** with % and speed for every upload to the PS5 and every SteamGridDB download; SteamGridDB pictures are streamed through the PS5 and loaded only once.
 
 ### Installing and switching themes on the PS5
@@ -41,7 +42,7 @@ Alpha: made on firmware **9.60** and confirmed working on **13.60**. Other firmw
   - *Themes*: switch theme, turn ZhiThemes off (*PS5 default*), install themes from a USB drive or the Install folder, back up all themes to a USB drive.
   - *Quick settings*: wallpaper, animated tiles, custom tiles, the extra tabs and the debug panel on or off without the editor.
   - *Tools*: the editor's address, reload the theme, clear the picture cache, copy the logs or a screen dump to a USB drive.
-  - *About*: version and firmware, and a QR code for Ko-fi (O or an arrow closes it).
+  - *About*: version and firmware (opens the ZhiThemes logo with a QR code for the GitHub page), and a QR code for Ko-fi (O or an arrow closes them).
   - *Updates*: automatic updates are coming later.
 - Copy a `.ztheme` to `/data/ZhiThemes/Install/` and it is installed when ZhiThemes starts.
 

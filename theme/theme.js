@@ -7120,9 +7120,10 @@
     }
     out.push(['zt-tools', '🛠 Tools', t]);
     /* About */
+    var verText = 'ZhiThemes ' + (tools.version || '') + (tools.fw ? '  ·  FW ' + tools.fw : '');
     out.push(['zt-about', 'ℹ About', [
-      infoItem('zt-a-ver', 'ZhiThemes ' + (tools.version || '') + (tools.fw ? '  ·  FW ' + tools.fw : '')),
-      /* the QR code is drawn by the theme: not with ZhiThemes off */
+      /* the logo and the QR codes are drawn by the theme: not with ZhiThemes off */
+      off ? infoItem('zt-a-ver', verText) : menuItem('zt-a-ver', verText, 'ztthemes:qr?github'),
       off ? infoItem('zt-a-kofi', 'Support: ko-fi.com/zhi')
           : menuItem('zt-a-kofi', 'Support: ko-fi.com/zhi (QR code)', 'ztthemes:qr')
     ]]);
@@ -7158,7 +7159,7 @@
     var m = /^ztthemes:(\w+)\??(.*)$/.exec(url);
     if (!m || m[1] === 'none') return;
     log('theme menu: ' + url);
-    if (m[1] === 'qr') { aboutQrOpen(); return; }
+    if (m[1] === 'qr') { aboutQrOpen(m[2] === 'github' ? 'github' : 'kofi'); return; }
     var q = m[1] === 'qset' ? /^(\w+),([01])$/.exec(m[2]) : null;
     var cmd = m[1] === 'use' ? 'THEME-THEMEUSE ' + m[2] : m[1] === 'off' ? 'THEME-THEMEOFF' :
               m[1] === 'file' ? 'THEME-THEMEFILE ' + m[2] :
@@ -7166,9 +7167,11 @@
               m[1] === 'tool' && /^\w+$/.test(m[2]) ? 'THEME-TOOL ' + m[2] : '';
     if (cmd) try { console.log(cmd); } catch (e) {}
   }
-  /* ---- About > Support: the Ko-fi QR code (Assets/particles/ui_kofi_qr.png)
-     in the Home front layer. O or an arrow closes it (qrTileKeys); also after 60 s
-     and when the Options menu opens again. */
+  /* ---- About: a card in the Home front layer. The version line shows the
+     logo with the GitHub QR code under it (ui_logo.png, ui_github_qr.png),
+     Support shows the Ko-fi QR code (ui_kofi_qr.png); all in Assets/particles.
+     O or an arrow closes it (qrTileKeys); also after 60 s and when the
+     Options menu opens again. */
   var qrListeners = [];
   T.qrOpen = false;
   function aboutQrSet(on) {
@@ -7184,7 +7187,7 @@
     try { console.log('THEME-QRFOCUS ' + (on ? 1 : 0)); } catch (e) {}
     qrListeners.forEach(function (f) { try { f(); } catch (e) {} });
   }
-  function aboutQrOpen() { aboutQrSet(true); }
+  function aboutQrOpen(kind) { T.qrKind = kind === 'github' ? 'github' : 'kofi'; aboutQrSet(true); }
   /* O or an arrow closes it: every tile's focusable view ({ name,
      focusable }) gets key handlers that close the QR code while it is shown.
      O is taken (nothing else happens); an arrow then does what it always
@@ -7248,6 +7251,17 @@
       return extra ? merge(s, extra) : s;
     };
     if (!T.done['about QR code']) done('about QR code');
+    if (T.qrKind === 'github') {
+      return React.createElement(rn.View, { pointerEvents: 'none', style: [ZT_SCREEN, { backgroundColor: 'rgba(0,0,0,0.6)' }] },
+        React.createElement(rn.View, { style: merge(card, { left: 960 - 300, top: 540 - 380, width: 600, height: 760, paddingTop: 30 }) },
+          React.createElement(rn.Image, { key: 'l', source: { uri: 'file://' + ZT_ASSETS + 'particles/ui_logo.png' },
+                                          style: { width: 220, height: 220 } }),
+          React.createElement(rn.Image, { key: 'q', source: { uri: 'file://' + ZT_ASSETS + 'particles/ui_github_qr.png' },
+                                          style: { width: 370, height: 370, marginTop: 10 } }),
+          React.createElement(rn.Text, { key: 'u', style: text('#1b1b1f', 30, { marginTop: 12 }), children: 'github.com/itsRealZhi/ZhiThemes' }),
+          React.createElement(rn.Text, { key: 'h', style: text('#6b6b73', 22, { marginTop: 14 }),
+                                         children: 'Source and releases. Press O or move to close.' })));
+    }
     return React.createElement(rn.View, { pointerEvents: 'none', style: [ZT_SCREEN, { backgroundColor: 'rgba(0,0,0,0.6)' }] },
       React.createElement(rn.View, { style: card },
         React.createElement(rn.Text, { key: 't', style: text('#1b1b1f', 36), children: 'Support ZhiThemes' }),

@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/logo.png" alt="ZhiThemes logo" width="200"></p>
+
 # ZhiThemes
 
 **Custom themes for the PS5 Home screen**, made by **Zhi**.
