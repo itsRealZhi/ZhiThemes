@@ -3,7 +3,7 @@
 Usage: python gen_particles_header.py <THEME/particles> <shellui/include/zt_particle_textures.hpp>
 
 The textures (THEME/particles/*.png) are AniketosHEN's
-(github.com/xS3Cx/AniketosHEN, GPL-3.0, source/shellui/assets/particles/builtin),
+(git.etawen.dev/Alex0/AniketosHEN, GPL-3.0, source/shellui/assets/particles/builtin),
 the ones its 23 built-in particle styles use, plus ZhiThemes' own white
 controller buttons btn_*.png (make_button_icons.py). zt_particles_install()
 (zt_storage.cpp) writes them to /data/ZhiThemes/Assets/particles/ at start;

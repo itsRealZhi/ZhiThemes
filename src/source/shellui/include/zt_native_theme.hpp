@@ -14,7 +14,7 @@ struct MonoImage;
 
 /*
  * native looks that the theme.js cannot reach, the way AniketosHEN
- * (GPL-3.0, github.com/xS3Cx/AniketosHEN) does them:
+ * (GPL-3.0, git.etawen.dev/Alex0/AniketosHEN) does them:
  *   - avatarOn / avatar: the signed-in user's picture (also animated GIF /
  *     WebP) wherever the system draws it, by ImageBox.LoadAsync;
  *   - panelTintOn / panelTintColor / panelTintStrength / panelTintOpacity:

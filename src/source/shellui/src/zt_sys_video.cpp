@@ -8,7 +8,7 @@ later version. See LICENSE and NOTICE.
 
 The stage in the background layer, the player options and the focus layer
 follow AniketosHEN (Copyright (C) 2026 AniketosHEN, GPL-3.0,
-github.com/xS3Cx/AniketosHEN: home_stage.cpp, home_video.cpp,
+git.etawen.dev/Alex0/AniketosHEN: home_stage.cpp, home_video.cpp,
 host_scene.cpp). */
 
 /*

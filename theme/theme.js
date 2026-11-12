@@ -4784,7 +4784,7 @@
     }
   }
   /* ---- extra tabs after Games / Media ----
-     The way AniketosHEN adds its tabs (github.com/xS3Cx/AniketosHEN, GPL-3.0,
+     The way AniketosHEN adds its tabs (git.etawen.dev/Alex0/AniketosHEN, GPL-3.0,
      rn_scripts/home_inject_js.inc): the tab bar is spaceIds.map(...), a tab's
      caption textBySpaceId[id], and each space's row its own
      AppBrowseItemAccessor query made with the space id. Ours ask for the

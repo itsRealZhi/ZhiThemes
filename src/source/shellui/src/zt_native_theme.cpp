@@ -8,7 +8,7 @@ later version. See LICENSE and NOTICE.
 
 The avatar box hook, the panel tint and the token colour hook follow
 AniketosHEN (Copyright (C) 2026 AniketosHEN, GPL-3.0,
-github.com/xS3Cx/AniketosHEN: account_avatar.cpp, panel_tint.cpp,
+git.etawen.dev/Alex0/AniketosHEN: account_avatar.cpp, panel_tint.cpp,
 icon_color/chosen_color.cpp, color.cpp). */
 
 #include "zt_native_theme.hpp"
