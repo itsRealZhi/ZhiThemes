@@ -162,7 +162,9 @@ ZhiThemes is free. If you like it, you can buy me a coffee on [Ko-fi](https://ko
 
 ## Credits and license
 
-ZhiThemes was created by **Zhi** (original project: https://github.com/itsRealZhi/ZhiThemes). It is built on [OnionHEN](https://github.com/aydencharles/onionHEN) by aydencharles and contributors (injection into ShellUI, hooking, ELF loading). See [CREDITS.md](CREDITS.md).
+ZhiThemes was created by **Zhi** (original project: https://github.com/itsRealZhi/ZhiThemes). It is built on [OnionHEN](https://github.com/aydencharles/onionHEN) by aydencharles and contributors (injection into ShellUI, hooking, ELF loading).
+
+Big thanks to [AniketosHEN](https://github.com/xS3Cx/AniketosHEN) by xS3Cx and contributors (GPL-3.0). A lot of ZhiThemes follows its work: the video wallpaper, the custom font without a reboot, the animated avatar, the system background and panel tint, the extra Home tabs, the 23 particle styles and the debug panel. The details are in [CREDITS.md](CREDITS.md).
 
 ZhiThemes is free software under the **GNU GPL v3** ([LICENSE](LICENSE)), with one additional term (GPL-3.0 section 7(b)): **forks and redistributions must keep the author attribution "ZhiThemes by Zhi"** in the payload's welcome message, the editor, the logs and the documentation. See [NOTICE](NOTICE).
 
