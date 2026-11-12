@@ -88,6 +88,24 @@ Copy the `.ztheme` to `/data/ZhiThemes/Install/` (FTP or a file manager). It's i
 **From the editor**
 Use **Install** in the editor and pick the file from your PC or phone.
 
+## Ready-made themes
+
+Don't want to start from zero? There are 9 themes ready to use in [`default_themes/`](default_themes/). Use them as they are, or install one and change it in the editor to make it yours.
+
+Get them all in one go with **`ZhiThemes-themes.zip`** on the [Releases](../../releases) page: extract it to the root of a USB drive (it makes `ZhiThemes/Themes/`), plug it in and open **Options > 🎨 ZhiThemes > Themes**. Or get them one by one from the folder (open the `.ztheme` and press **Download raw file**) and install them [like any other theme](#installing-themes).
+
+**What does "Banned" mean?** Those themes are made for consoles that are always offline (banned or never connected). They hide the things you can't use without PSN: PS Store, PS Plus, the online parts of the Home, and the bottom part of the game hub. The others keep everything like the stock PS5.
+
+| | |
+|:---:|:---:|
+| <img src="default_themes/previews/SilverMoon-Banned.jpg" alt="SilverMoon-Banned" width="100%"><br>**SilverMoon** · Banned | <img src="default_themes/previews/KindaSelene.jpg" alt="KindaSelene" width="100%"><br>**KindaSelene** |
+| <img src="default_themes/previews/CleanWaves-Banned.jpg" alt="CleanWaves-Banned" width="100%"><br>**CleanWaves** · Banned | <img src="default_themes/previews/CleanWavesVertical-Banned.jpg" alt="CleanWavesVertical-Banned" width="100%"><br>**CleanWaves Vertical** · Banned |
+| <img src="default_themes/previews/LavaLampPurple-Banned.jpg" alt="LavaLampPurple-Banned" width="100%"><br>**LavaLampPurple** · Banned | <img src="default_themes/previews/ProjectClean-Banned.jpg" alt="ProjectClean-Banned" width="100%"><br>**ProjectClean** · Banned |
+| <img src="default_themes/previews/SteamDik.jpg" alt="SteamDik" width="100%"><br>**SteamDik** | <img src="default_themes/previews/RoundAround.jpg" alt="RoundAround" width="100%"><br>**RoundAround** |
+| <img src="default_themes/previews/sharpcorners.jpg" alt="sharpcorners" width="100%"><br>**sharpcorners** | |
+
+The pictures, videos and fonts in these themes belong to their authors: see [CREDITS.md](CREDITS.md#example-themes).
+
 ## The 🎨 ZhiThemes menu
 
 Press **Options** on any tile of the Home: the first item is **🎨 ZhiThemes**. You don't need the editor for the everyday stuff.

@@ -20,9 +20,20 @@
 
 ## Example themes
 
+The ready-made themes in [`default_themes/`](default_themes/). Each picture, video and font keeps its own license; the links below are where they come from.
+
 - **KindaSelene**: inspired by [Selene](https://github.com/mattxslv/Selene) by mattxslv. Settings wallpaper: photo by [Liana S](https://unsplash.com/pt-br/@cherstve_pechivo) on [Unsplash](https://unsplash.com/pt-br/fotografias/luz-dourada-brilha-sobre-um-fundo-escuro-q-NZ4eFtYx0).
-- **CleanWaves** (both versions): inspired by [A PlayStation 5 User Interface Concept](https://dribbble.com/shots/14208203-A-PlayStation-5-User-Interface-Concept) on Dribbble.
-- **sharpcorners**: video by [NewHumanDesigns](https://pixabay.com/users/newhumandesigns-8896/) from [Pixabay](https://pixabay.com/).
+- **CleanWaves** (both versions): inspired by [A PlayStation 5 User Interface Concept](https://dribbble.com/shots/14208203-A-PlayStation-5-User-Interface-Concept) on Dribbble. Settings wallpaper: "Abstract Blue Edge" from [wallpapersden.com](https://wallpapersden.com/).
+- **LavaLampPurple**: overlay by Zhi. Settings wallpaper: "Abstract Purple Waves" from [wallpapersden.com](https://wallpapersden.com/).
+- **SilverMoon**: video wallpaper ["Flying Moon"](https://pixabay.com/videos/ai-generated-flight-moon-night-sky-312950/) by [doktorkleinmusic](https://pixabay.com/users/doktorkleinmusic-5871510/) from [Pixabay](https://pixabay.com/).
+- **SteamDik**: Settings video ["Abstract, Snow, Christmas"](https://pixabay.com/videos/abstract-snow-christmas-winter-19725/) from [Pixabay](https://pixabay.com/).
+
+### Fonts in the example themes
+
+- **JUST Sans** (LavaLampPurple, SilverMoon) by Jacob Cass, from [dafont](https://www.dafont.com/just-sans.font) (100% Free); more weights at [justsans.com](https://justsans.com/).
+- **Consola Mono** (sharpcorners) by Wojciech Kalinowski, from [dafont](https://www.dafont.com/consola-mono.font) (Public domain / GPL / OFL).
+- **Matcha Style** (RoundAround) by [Khurasan](https://khurasanstudio.com/), from [dafont](https://www.dafont.com/matcha-style.font) (free for personal and commercial use).
+- **Manrope** (CleanWaves), **Nunito** (SteamDik), **Poppins** (ProjectClean) and **Titillium Web** (KindaSelene), from [Google Fonts](https://fonts.google.com/) (SIL Open Font License).
 
 ## Thanks
 
