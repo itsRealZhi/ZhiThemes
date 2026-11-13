@@ -10,8 +10,8 @@ later version. See LICENSE and NOTICE.  */
  * SteamGridDB requests for the editor's Tiles tab, made by the PS5
  * with the SDK's homebrew libcurl + OpenSSL and the CA bundle built in (as
  * onionHEN's cheat catalog does, util/source/cheats/sync/http_transport_ps5.cpp).
- * Called from the web server thread only (one request at a time); the curl
- * handle is kept so the TLS connection is reused between thumbnails.
+ * Concurrent requests borrow separate handles. Idle handles retain their
+ * connections for reuse without serializing active transfers.
  */
 
 #include "zt_sgdb.hpp"
@@ -25,6 +25,8 @@ later version. See LICENSE and NOTICE.  */
 
 #include <curl/curl.h>
 
+#include <array>
+#include <memory>
 #include <mutex>
 
 extern "C" {
@@ -44,8 +46,47 @@ int sceNetInit(void);
 namespace {
 
 std::mutex g_lock;
-CURL *g_curl = nullptr;
+std::array<CURL *, 4> g_idle_handles{};
 int g_state = 0; /* 1 ready, -1 failed */
+
+constexpr long kRequestTimeoutMs = 30000;
+constexpr long kPreviewTimeoutMs = 45000;
+constexpr long kMediaTimeoutMs = 240000;
+constexpr long kDownloadStallSeconds = 45;
+
+CURL *acquire_handle() {
+  std::lock_guard<std::mutex> lock(g_lock);
+  if (g_state == 0) {
+    sceNetInit();
+    const CURLcode rc = curl_global_init(CURL_GLOBAL_DEFAULT);
+    g_state = rc == CURLE_OK ? 1 : -1;
+    zt_log("sgdb: curl %s (%s)", g_state > 0 ? "ready" : "FAILED", curl_version());
+  }
+  if (g_state < 0)
+    return nullptr;
+  for (CURL *&idle : g_idle_handles) {
+    if (idle) {
+      CURL *handle = idle;
+      idle = nullptr;
+      return handle;
+    }
+  }
+  return curl_easy_init();
+}
+
+void release_handle(CURL *handle) {
+  curl_easy_reset(handle);
+  {
+    std::lock_guard<std::mutex> lock(g_lock);
+    for (CURL *&idle : g_idle_handles) {
+      if (!idle) {
+        idle = handle;
+        return;
+      }
+    }
+  }
+  curl_easy_cleanup(handle);
+}
 
 struct Sink {
   std::string *body;
@@ -57,9 +98,19 @@ struct Sink {
   const std::function<bool(const char *, size_t, long, long long)> *chunk = nullptr; /* handed on instead */
   bool stopped = false;
   bool follow = false; /* redirects followed: each answer must still come from an allowed host */
+  const std::function<bool()> *cancel = nullptr;
 };
 
 bool allowed(const std::string &url);
+
+int on_progress(void *user, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
+  auto *s = static_cast<Sink *>(user);
+  if (s->cancel && (*s->cancel)()) {
+    s->stopped = true;
+    return 1;
+  }
+  return 0;
+}
 
 size_t on_data(char *ptr, size_t size, size_t n, void *user) {
   Sink *s = static_cast<Sink *>(user);
@@ -130,17 +181,17 @@ namespace {
 bool sgdb_fetch(const std::string &url, const std::string &key, std::string &body, FILE *file, long &http,
                 std::string &err, size_t max_bytes, long timeout_ms,
                 const std::function<bool(const char *, size_t, long, long long)> *chunk = nullptr,
-                std::string *final_url = nullptr);
+                std::string *final_url = nullptr, const std::function<bool()> *cancel = nullptr);
 }
 
 bool zt_web_page(const std::string &url, std::string &body, std::string &final_url, long &http, std::string &err,
                  size_t max_bytes) {
-  return sgdb_fetch(url, "", body, nullptr, http, err, max_bytes, 30000L, nullptr, &final_url);
+  return sgdb_fetch(url, "", body, nullptr, http, err, max_bytes, kRequestTimeoutMs, nullptr, &final_url);
 }
 
 bool zt_sgdb_get(const std::string &url, const std::string &key, std::string &body, long &http,
                  std::string &err, size_t max_bytes) {
-  return sgdb_fetch(url, key, body, nullptr, http, err, max_bytes, 30000L);
+  return sgdb_fetch(url, key, body, nullptr, http, err, max_bytes, kRequestTimeoutMs);
 }
 
 bool zt_sgdb_get_file(const std::string &url, const std::string &path, size_t &size, long &http,
@@ -152,7 +203,7 @@ bool zt_sgdb_get_file(const std::string &url, const std::string &path, size_t &s
     return false;
   }
   std::string unused;
-  const bool ok = sgdb_fetch(url, "", unused, f, http, err, max_bytes, 240000L);
+  const bool ok = sgdb_fetch(url, "", unused, f, http, err, max_bytes, kMediaTimeoutMs);
   size = (size_t)ftell(f);
   fclose(f);
   if (!ok)
@@ -162,43 +213,33 @@ bool zt_sgdb_get_file(const std::string &url, const std::string &path, size_t &s
 
 bool zt_sgdb_stream(const std::string &url, size_t max_bytes,
                     const std::function<bool(const char *, size_t, long, long long)> &chunk, long &http,
-                    std::string &err) {
+                    std::string &err, bool preview, bool selected, const std::function<bool()> &cancel) {
   std::string unused;
-  return sgdb_fetch(url, "", unused, nullptr, http, err, max_bytes, 240000L, &chunk);
+  const long timeout_ms = selected ? 0L : (preview ? kPreviewTimeoutMs : kMediaTimeoutMs);
+  return sgdb_fetch(url, "", unused, nullptr, http, err, max_bytes, timeout_ms, &chunk, nullptr,
+                    cancel ? &cancel : nullptr);
 }
 
 namespace {
 bool sgdb_fetch(const std::string &url, const std::string &key, std::string &body, FILE *file, long &http,
                 std::string &err, size_t max_bytes, long timeout_ms,
                 const std::function<bool(const char *, size_t, long, long long)> *chunk,
-                std::string *final_url) {
+                std::string *final_url, const std::function<bool()> *cancel) {
   body.clear();
   http = 0;
   if (!allowed(url)) {
     err = "address not allowed";
     return false;
   }
-  std::lock_guard<std::mutex> lock(g_lock);
-  if (g_state == 0) {
-    sceNetInit();
-    const CURLcode rc = curl_global_init(CURL_GLOBAL_DEFAULT);
-    g_state = rc == CURLE_OK ? 1 : -1;
-    zt_log("sgdb: curl %s (%s)", g_state > 0 ? "ready" : "FAILED", curl_version());
-  }
-  if (g_state < 0) {
+  std::unique_ptr<CURL, decltype(&release_handle)> handle(acquire_handle(), release_handle);
+  if (!handle) {
     err = "curl not available";
     return false;
   }
-  if (!g_curl)
-    g_curl = curl_easy_init();
-  if (!g_curl) {
-    err = "curl_easy_init failed";
-    return false;
-  }
-  CURL *c = g_curl;
-  curl_easy_reset(c);
+  CURL *c = handle.get();
   Sink sink{&body, max_bytes, false, file, 0, c, chunk};
   sink.follow = site_follows(url);
+  sink.cancel = cancel;
   struct curl_blob ca {
     const_cast<unsigned char *>(zt_sgdb_ca_start), (size_t)(zt_sgdb_ca_end - zt_sgdb_ca_start), CURL_BLOB_NOCOPY
   };
@@ -215,6 +256,15 @@ bool sgdb_fetch(const std::string &url, const std::string &key, std::string &bod
   curl_easy_setopt(c, CURLOPT_SSL_VERIFYHOST, 2L);
   curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT_MS, 10000L);
   curl_easy_setopt(c, CURLOPT_TIMEOUT_MS, timeout_ms);
+  if (timeout_ms == 0) {
+    curl_easy_setopt(c, CURLOPT_LOW_SPEED_LIMIT, 1L);
+    curl_easy_setopt(c, CURLOPT_LOW_SPEED_TIME, kDownloadStallSeconds);
+  }
+  if (cancel) {
+    curl_easy_setopt(c, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(c, CURLOPT_XFERINFOFUNCTION, on_progress);
+    curl_easy_setopt(c, CURLOPT_XFERINFODATA, &sink);
+  }
   curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, on_data);
   curl_easy_setopt(c, CURLOPT_WRITEDATA, &sink);
   struct curl_slist *headers = nullptr;
@@ -229,8 +279,10 @@ bool sgdb_fetch(const std::string &url, const std::string &key, std::string &bod
     curl_easy_getinfo(c, CURLINFO_EFFECTIVE_URL, &eff);
     *final_url = eff ? eff : url;
   }
-  if (headers)
+  if (headers) {
+    curl_easy_setopt(c, CURLOPT_HTTPHEADER, nullptr);
     curl_slist_free_all(headers);
+  }
   if (rc != CURLE_OK) {
     err = sink.over ? "answer too large" : sink.stopped ? "stopped" : curl_easy_strerror(rc);
     zt_log("sgdb: %.160s failed: %s", url.c_str(), err.c_str());
@@ -267,7 +319,7 @@ bool zt_sgdb_get_file(const std::string &, const std::string &, size_t &size, lo
 }
 
 bool zt_sgdb_stream(const std::string &, size_t, const std::function<bool(const char *, size_t, long, long long)> &,
-                    long &http, std::string &err) {
+                    long &http, std::string &err, bool, bool, const std::function<bool()> &) {
   http = 0;
   err = "not in this build";
   return false;

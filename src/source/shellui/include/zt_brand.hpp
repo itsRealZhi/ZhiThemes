@@ -13,7 +13,7 @@ keep the author attribution).  */
 
 #define ZT_NAME "ZhiThemes"
 #define ZT_AUTHOR "Zhi"
-#define ZT_VERSION "0.1.0-alpha"
+#define ZT_VERSION "0.1.0-alpha+sgdb"
 #define ZT_BUILD 375
 #define ZT_STR2(x) #x
 #define ZT_STR(x) ZT_STR2(x)

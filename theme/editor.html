@@ -4149,24 +4149,35 @@
   var sgKeySet = null;
   var sgAnim = false;
   try { sgAnim = localStorage.getItem('zt.sgAnim') === '1'; } catch (e) {}
-  /* SteamGridDB pictures come through the PS5 (/sgdb/img), which fetches
-     one at a time: each is asked once and kept here (redraws, the big
-     preview and Download use the same copy); the picture clicked goes
-     first in the queue; progress from the bytes read */
-  var sgCache = {}, sgOrder = [], sgQueue = [], sgActive = 0;
+  /* Keep preview traffic out of the slot used for a selected picture.
+     The PS5 forwards both kinds from the CDN, and the browser reuses them. */
+  var sgCache = {}, sgOrder = [], sgQueue = [], sgActive = 0, sgDownloadActive = false;
   var sgMB = sizeMB;
   function sgProgText(e) { return e.now ? progText(e.now, e.total, e.t0) : 'waiting for the PS5…'; }
   function sgFrac(e) { return e.total && e.now ? e.now / e.total : null; }
   function sgPump() {
-    while (sgActive < 2 && sgQueue.length) sgRun(sgQueue.shift());
+    if (!sgDownloadActive) {
+      var selected = sgQueue.findIndex(function (e) { return e.urgent; });
+      if (selected !== -1) sgRun(sgQueue.splice(selected, 1)[0]);
+    }
+    while (!sgDownloadActive && sgActive < 2) {
+      var preview = sgQueue.findIndex(function (e) { return !e.urgent; });
+      if (preview === -1) break;
+      sgRun(sgQueue.splice(preview, 1)[0]);
+    }
   }
   function sgRun(e) {
-    sgActive++;
-    e.t0 = Date.now();
-    var done = function () { sgActive--; sgPump(); };
+    var urgent = e.urgent;
+    if (urgent) sgDownloadActive = true; else sgActive++;
+    var done = function () {
+      if (urgent) sgDownloadActive = false; else sgActive--;
+      sgPump();
+    };
     /* a path of the PS5 (/mbg/... from motionbgs.com) or a SteamGridDB address */
-    fetch(e.u.charAt(0) === '/' ? e.u : '/sgdb/img?u=' + encodeURIComponent(e.u)).then(function (r) {
+    var path = e.u.charAt(0) === '/' ? e.u : '/sgdb/img?kind=' + (urgent ? 'download' : 'preview') + '&u=' + encodeURIComponent(e.u);
+    fetch(path).then(function (r) {
       if (!r.ok) return r.text().then(function (t) { throw new Error(t || 'SteamGridDB ' + r.status); });
+      e.t0 = Date.now();
       e.total = parseInt(r.headers.get('Content-Length'), 10) || 0;
       if (!r.body || !r.body.getReader) return r.blob();
       var rd = r.body.getReader(), parts = [];
@@ -4186,11 +4197,11 @@
       delete sgCache[e.u]; e.subs = []; done(); e.no(er);
     });
   }
-  /* the picture as a Blob; onProg(entry) while it comes; urgent = ahead of the thumbnails */
+  /* The picture as a Blob. An urgent request can promote a queued preview. */
   function sgGet(u, onProg, urgent) {
     var e = sgCache[u];
     if (!e) {
-      e = sgCache[u] = { u: u, now: 0, total: 0, t0: Date.now(), subs: [], blob: null, url: '' };
+      e = sgCache[u] = { u: u, now: 0, total: 0, t0: 0, subs: [], blob: null, url: '', urgent: false };
       e.p = new Promise(function (ok, no) { e.ok = ok; e.no = no; });
       e.p.catch(function () {});
       sgQueue.push(e);
@@ -4203,10 +4214,7 @@
         if (old) { if (old.url) URL.revokeObjectURL(old.url); delete sgCache[old.u]; }
       }
     }
-    if (urgent) {
-      var qi = sgQueue.indexOf(e);
-      if (qi > 0) { sgQueue.splice(qi, 1); sgQueue.unshift(e); }
-    }
+    if (urgent) e.urgent = true;
     if (onProg && !e.blob) { e.subs.push(onProg); onProg(e); }
     sgPump();
     return e.p;
@@ -4221,8 +4229,12 @@
   }
   /* the queued thumbnails of another page / game are not wanted any more */
   function sgDropQueue() {
-    sgQueue.forEach(function (e) { delete sgCache[e.u]; e.no(new Error('dropped')); });
-    sgQueue = [];
+    sgQueue = sgQueue.filter(function (e) {
+      if (e.urgent) return true;
+      delete sgCache[e.u];
+      e.no(new Error('dropped'));
+      return false;
+    });
   }
   /* a SteamGridDB thumbnail / picture: animated ones may come as video */
   function sgMedia(el, u, fallbackText, onProg, urgent) {
@@ -4317,17 +4329,17 @@
     }
     sg.busyFrac = null; sg.busy = 'Downloading to the PS5…';
     drawTiles();
-    /* a JPEG comes here first and goes to the PS5 as PNG */
-    /* an animated logo / picture goes to the PS5 as a still PNG (its first frame) */
-    var save = k === 'lg' || /\.(jpe?g|webp|gif)$/i.test(pic.url) || sg.anim ? sgUrl(pic.url, function (e) { sgBusySet('Downloading to the PS5… ' + sgProgText(e), sgFrac(e)); }, true).then(function (src) {
-      return (k === 'lg' ? logoPng : toPng)(src);
-    }).then(function (b) {
+    var progress = function (e) { sgBusySet('Downloading to the PS5… ' + sgProgText(e), sgFrac(e)); };
+    var picture = /\.png$/i.test(pic.url) && !sg.anim
+      ? sgGet(pic.url, progress, true)
+      : sgUrl(pic.url, progress, true).then(toPng);
+    var save = picture.then(function (b) {
       var name = id + '_' + kFmt(k) + '_' + kNext(k, id) + '.png';
       return upPost('/customtile?name=' + encodeURIComponent(name), b).then(function (r) {
         if (!r.ok) throw new Error('upload ' + r.status);
         return name;
       });
-    }) : sgFetch('/sgdb/save?u=' + encodeURIComponent(pic.url) + '&id=' + id + '&fmt=' + kFmt(k), 'POST');
+    });
     save
       .then(function (name) {
         sg.busyFrac = null; sg.busy = ''; sg.pick = null;
@@ -4441,26 +4453,8 @@
     } else {
       var pv = document.createElement('div');
       pv.className = 'ct-pic ' + CT_FMT[k].cls + ' on sg-big';
-      var full = sg.anim ? pic.url : pic.thumb || pic.url;
-      var two = !!pic.thumb && full !== pic.thumb;
-      var first = sgMedia(pv, two ? pic.thumb : full, '…');
-      if (two) {
-        /* the full animated picture: the thumbnail stays until it is all here */
-        var pg = document.createElement('div'); pg.className = 'sg-prog';
-        pg.title = 'The full animation comes through the PS5';
-        var bar = document.createElement('i'), pt = document.createElement('b');
-        pg.appendChild(bar); pg.appendChild(pt);
-        pv.appendChild(pg);
-        sgUrl(full, function (e) {
-          pt.textContent = 'Loading the animation… ' + sgProgText(e);
-          bar.style.width = (e.total ? Math.min(100, e.now * 100 / e.total) : 0) + '%';
-        }, true).then(function (src) {
-          pg.remove();
-          if (first.tagName === 'IMG' && !/\.(webm|mp4)(\?|$)/i.test(full)) { first.src = src; return; }
-          var nm = sgMedia(document.createElement('div'), full, '…');
-          if (first.parentNode) first.replaceWith(nm); else pv.insertBefore(nm, pv.firstChild);
-        }, function (er) { pt.textContent = 'The animation did not come: ' + er.message; bar.style.width = '0'; });
-      }
+      var preview = pic.thumb && pic.thumb !== pic.url ? pic.thumb : sg.anim ? '' : pic.url;
+      if (preview) sgMedia(pv, preview, '…');
       var sp = document.createElement('span'); sp.textContent = pic.width + '×' + pic.height + (pic.author && pic.author.name ? ' · by ' + pic.author.name : '');
       pv.appendChild(sp);
       wrap.appendChild(pv);
@@ -4470,6 +4464,7 @@
     var dl = document.createElement('button');
     dl.className = 'primary';
     dl.textContent = '\u2b07 Download ' + (k === 'bg' ? '1920×1080' : CT_FMT[k].label.toLowerCase()) + ' to the PS5';
+    dl.disabled = !!sg.busy;
     dl.onclick = function () { if (k === 'bg') sgSaveBg(g.id); else sgSave(g.id, pic); };
     act.appendChild(dl);
     var no = document.createElement('button'); no.textContent = 'Cancel';
@@ -4531,7 +4526,8 @@
         var c = document.createElement('div');
         c.className = 'ct-pic ' + shape + (sg.pick === pic ? ' on' : '');
         c.title = (pic.author && pic.author.name ? 'by ' + pic.author.name + ' · ' : '') + pic.width + '×' + pic.height;
-        sgMedia(c, pic.thumb || pic.url, '…');
+        var preview = pic.thumb && pic.thumb !== pic.url ? pic.thumb : sg.anim ? '' : pic.url;
+        if (preview) sgMedia(c, preview, '…');
         var sp = document.createElement('span');
         sp.textContent = pic.width + '×' + pic.height;
         c.appendChild(sp);

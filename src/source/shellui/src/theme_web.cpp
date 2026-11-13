@@ -21,6 +21,7 @@ later version. See LICENSE and NOTICE.  */
 #include "zt_storage.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
@@ -72,7 +73,7 @@ namespace {
 constexpr int kPort = 4444;
 /* the theme file is Themes/<active>.ztheme (zt_theme_file()) */
 constexpr const char *kLogPath = ZT_LOGS "/zhithemes.log";
-bool g_web_quit = false; /* set by POST /quit */
+std::atomic<bool> g_web_quit{false}; /* set by POST /quit */
 time_t g_started = time(nullptr); /* when this copy of the module started */
 constexpr size_t kMaxHeader = 16u << 10;
 constexpr size_t kMaxBody = 24u << 20; /* font files can be a few MB */
@@ -251,9 +252,14 @@ struct SgdbImgJob {
   const char *mime;
   const char *who; /* the site, in the error text */
   size_t max;
+  bool preview = false;
+  bool priority = false;
 };
+
+bool g_sgdb_download_active = false; /* protected by g_asset_lock */
+
 void sgdb_img_send(int fd, const std::string &url, const char *mime, const char *who = "SteamGridDB",
-                   size_t max = 400u << 20) {
+                   size_t max = 400u << 20, bool preview = false, bool priority = false) {
   bool head_sent = false, client_ok = true;
   long http = 0, bad = 0;
   std::string err;
@@ -290,7 +296,7 @@ void sgdb_img_send(int fd, const std::string &url, const char *mime, const char 
         }
         return true;
       },
-      http, err);
+      http, err, preview, priority, [] { return g_web_quit.load(); });
   if (!head_sent) {
     const std::string why = bad ? "HTTP " + std::to_string(bad) : err.empty() ? std::to_string(http) : err;
     reply(fd, 502, "Bad Gateway", "text/plain", std::string(who) + ": " + why);
@@ -300,12 +306,14 @@ void sgdb_img_send(int fd, const std::string &url, const char *mime, const char 
 }
 void *sgdb_img_client(void *arg) {
   SgdbImgJob *j = (SgdbImgJob *)arg;
-  sgdb_img_send(j->fd, j->url, j->mime, j->who, j->max);
+  sgdb_img_send(j->fd, j->url, j->mime, j->who, j->max, j->preview, j->priority);
   close(j->fd);
-  delete j;
   pthread_mutex_lock(&g_asset_lock);
+  if (j->priority)
+    g_sgdb_download_active = false;
   --g_asset_clients;
   pthread_mutex_unlock(&g_asset_lock);
+  delete j;
   return nullptr;
 }
 
@@ -766,12 +774,18 @@ void handle(int fd) {
         /* handed on as it comes from the CDN (no second download, the
            editor sees the progress), from a thread of its own so the
            editor's other requests do not wait behind a big picture */
-        auto *job = new SgdbImgJob{fd, url, mime, "SteamGridDB", 400u << 20};
+        const std::string kind = query_value(query, "kind");
+        const bool priority = kind == "download";
+        auto *job = new SgdbImgJob{fd, url, mime, "SteamGridDB", 400u << 20, kind == "preview", priority};
         pthread_t t;
         pthread_mutex_lock(&g_asset_lock);
-        const bool room = g_asset_clients < 4;
-        if (room)
+        const bool room = priority ? !g_sgdb_download_active
+                                   : g_asset_clients - (int)g_sgdb_download_active < 4;
+        if (room) {
           ++g_asset_clients;
+          if (priority)
+            g_sgdb_download_active = true;
+        }
         pthread_mutex_unlock(&g_asset_lock);
         if (room && pthread_create(&t, nullptr, sgdb_img_client, job) == 0) {
           pthread_detach(t);
@@ -780,12 +794,15 @@ void handle(int fd) {
         }
         if (room) {
           pthread_mutex_lock(&g_asset_lock);
+          if (priority)
+            g_sgdb_download_active = false;
           --g_asset_clients;
           pthread_mutex_unlock(&g_asset_lock);
         }
-        sgdb_img_send(fd, job->url, job->mime);
         delete job;
-        return;
+        return reply(fd, 503, "Service Unavailable", "text/plain",
+                     priority ? "An artwork download is still running. Try again when it finishes."
+                              : "The artwork preview slots are busy. Try again.");
       }
       std::string id = query_value(query, "id");
       bool ok_id = id.size() == 9;
