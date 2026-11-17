@@ -584,3 +584,14 @@ export PS5_PAYLOAD_SDK=/path/to/ps5-payload-sdk
 ./scripts/ps5_cmake.sh -S source -B build -G Ninja
 cmake --build build
 ```
+
+
+### ZhiThemes Home trophy relay
+
+Home trophy requests and their game-name metadata stay in the existing
+SceShellUI console/JavaScript relay. `__themeTrophyAsk(ids, games, files)`
+receives per-ID snapshots; per-title `trophies-<id>` replies preserve concurrent
+prefetch results. The hub owns bounded native offline TrophyAccessor calls
+and releases their handles/cursors. There is no additional process, service,
+SDK dependency or filesystem runtime path. See [localized trophy lookup](../../docs/TROPHIES.md)
+for the verified firmware call chain and regression commands.

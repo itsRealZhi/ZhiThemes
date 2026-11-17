@@ -24,6 +24,7 @@ later version. See LICENSE and NOTICE.  */
 #include "zt_mosaic.hpp"
 #include "zt_native_theme.hpp"
 #include "zt_storage.hpp"
+#include "zt_title_names.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -2833,11 +2834,13 @@ std::string installed_games() {
     const std::string dir = "/user/app/" + id + "/sce_sys/", meta = "/user/appmeta/" + id + "/";
     /* name and kind: param.json (PS5) or param.sfo (PS4), wherever they are */
     std::string name, space = "game";
+    std::vector<std::string> names;
     for (const std::string &pj : {dir + "param.json", meta + "param.json"}) {
       if (!name.empty())
         break;
       const std::string param = read_file(pj.c_str());
       name = json_title(param);
+      names = zt_localized_title_names(param);
       if (!name.empty() && json_category(param) > 0)
         space = "media";
     }
@@ -2885,7 +2888,13 @@ std::string installed_games() {
     ++kept;
     if (json.size() > 1)
       json += ',';
-    json += "{\"id\":\"" + id + "\",\"name\":\"" + json_text(name) + "\",\"icon\":\"" + icon +
+    std::string names_json = "[";
+    for (const std::string &localized : names) {
+      if (names_json.size() > 1) names_json += ',';
+      names_json += "\"" + json_text(localized) + "\"";
+    }
+    names_json += ']';
+    json += "{\"id\":\"" + id + "\",\"name\":\"" + json_text(name) + "\",\"names\":" + names_json + ",\"icon\":\"" + icon +
             "\",\"bg\":\"" + bg + "\",\"space\":\"" + space + "\",\"installed\":true}";
   }
   json += "]";
@@ -2956,15 +2965,19 @@ void deliver_hub_request(unsigned ctx) {
   /* the trophy requests are for a game hub */
   if (media)
     return;
-  std::string id;
+  std::string id, games, files;
   {
     std::lock_guard<std::mutex> lock(g_name_lock);
     id.swap(g_hub_trophy_req);
+    if (id.empty())
+      return;
+    games = g_games_all;
+    auto it = g_hub_data.find("allgames");
+    if (it != g_hub_data.end())
+      files = it->second;
   }
-  if (id.empty())
-    return;
   const std::string src = ascii_js("globalThis.__themeTrophyAsk && globalThis.__themeTrophyAsk('" +
-                                   js_quote(id) + "');");
+                                   js_quote(id) + "','" + js_quote(games) + "','" + js_quote(files) + "');");
   MonoDomain *domain = mono_domain_get();
   void *args[2] = {mono_string_new(domain, src.c_str()), mono_string_new(domain, "theme-ask.js")};
   MonoObject *exc = nullptr;

@@ -7910,15 +7910,17 @@
         } catch (e) { log('installed games: bad data ' + e); }
         return;
       }
-      if (key !== 'trophies' || !THEME.fakeTrophies) return;
+      if (!THEME.fakeTrophies || (key !== 'trophies' && !/^trophies-[A-Z]{4}\d{5}$/.test(key))) return;
       var v;
       try { v = JSON.parse(String(text)); } catch (e) { log('trophies: bad data ' + e); return; }
-      if (v && v.id) (T.trophyCache = T.trophyCache || {})[v.id] = v;
+      if (v && v.id && trophyValue(v)) (T.trophyCache = T.trophyCache || {})[v.id] = v;
+      else if (v && v.none && v.id && cachedTrophies(v.id)) v = cachedTrophies(v.id);
       /* only the focused game's are shown (a prefetched one waits in the cache) */
       if (v && v.id && T.focusedId && v.id !== T.focusedId) return;
       T.trophies = v;
       if (!T.done['trophies received']) done('trophies received: ' + String(text).slice(0, 120));
       setTimeout(function () {
+        if (T.trophies !== v || (v && v.id && T.focusedId && v.id !== T.focusedId)) return;
         trophyListeners.forEach(function (f) { try { f(v); } catch (e) {} });
       }, 0);
     };
@@ -9531,10 +9533,14 @@
     return [o.platinum | 0, o.gold | 0, o.silver | 0, o.bronze | 0];
   }
   function sendTrophyData(msg) {
+    if (!msg || !/^[A-Z]{4}\d{5}$/.test(String(msg.id || ''))) return;
+    if (msg.none && cachedTrophies(msg.id)) msg = cachedTrophies(msg.id);
     var text = JSON.stringify(msg);
     if (text === T.trophySent) return;
     T.trophySent = text;
-    try { console.log('THEME-DATA trophies ' + text); } catch (e) {}
+    /* The native bridge keeps one value per key until the Home polls.
+       A single "trophies" key lost all but the last prefetch reply. */
+    try { console.log('THEME-DATA trophies-' + msg.id + ' ' + text); } catch (e) {}
   }
   function hubTitleId() {
     var q = T.hubContext && T.hubContext.queryParams;
@@ -9549,9 +9555,13 @@
           (data && typeof data === 'object' ? Object.keys(data).join(',').slice(0, 200) : String(data))));
     }
     if (!t) return;
-    T.trophyGotFor = hubTitleId();
-    sendTrophyData({ id: hubTitleId(), e: grades(t.earnedTrophies), d: grades(t.definedTrophies),
-                     p: typeof t.progress === 'number' ? t.progress : null });
+    var id = hubTitleId();
+    if (!id) return;
+    T.trophyGotFor = id;
+    var msg = { id: id, e: grades(t.earnedTrophies), d: grades(t.definedTrophies),
+                p: typeof t.progress === 'number' ? t.progress : null };
+    (T.trophyCache = T.trophyCache || {})[id] = msg;
+    sendTrophyData(msg);
   }
 
   /* With big tiles and the row low the hub is entirely below the screen and
@@ -9560,79 +9570,444 @@
      Then the theme calls the same fetch the hook uses:
      fetchTrophyProgressData({npTitleId}) = module 2559 default (a promise
      with the mapped trophy title, gamehub ~755945). */
-  var NP_SUFFIXES = ['_00', ''];
-  function fetchTrophies(titleId) {
-    if (!titleId || !T.require || T.trophyGotFor === titleId) return;
-    var mod;
-    try { mod = T.require(2559); } catch (e) { log('trophies fetch: module 2559 ' + e); return; }
-    var fn = mod && (mod.default || mod);
-    if (typeof fn !== 'function') { log('trophies fetch: no function in 2559'); return; }
-    var i = 0;
-    var next = function () {
-      if (i >= NP_SUFFIXES.length || T.trophyGotFor === titleId || hubTitleId() !== titleId) return;
-      var np = titleId + NP_SUFFIXES[i++], p;
-      try { p = fn({ npTitleId: np }); } catch (e) { log('trophies fetch ' + np + ': ' + e); next(); return; }
-      if (!p || typeof p.then !== 'function') { log('trophies fetch ' + np + ': not a promise'); return; }
-      p.then(function (r) {
-        var t = findTrophies(r, 0);
-        if (!T.done['trophies fetch result']) {
-          T.done['trophies fetch result'] = true;
-          log('trophies fetch ' + np + ': ' + (t ? 'found' : 'no trophies, keys: ' +
-              (r && typeof r === 'object' ? Object.keys(r).join(',').slice(0, 200) : String(r))));
-        }
-        if (t && hubTitleId() === titleId && T.trophyGotFor !== titleId) {
-          T.trophyGotFor = titleId;
-          sendTrophyData({ id: titleId, e: grades(t.earnedTrophies), d: grades(t.definedTrophies),
-                           p: typeof t.progress === 'number' ? t.progress : null });
-          if (!T.done['trophies by fetch']) done('trophies by fetch (' + np + ')');
-        } else if (!t) next();
-      }, function (err) {
-        if (!T.done['trophies fetch error ' + np])
-          { T.done['trophies fetch error ' + np] = true; log('trophies fetch ' + np + ' failed: ' + (err && (err.message || err.error || JSON.stringify(err).slice(0, 160)))); }
-        next();
+  function trophyValue(v) {
+    return !!(v && !v.none && Array.isArray(v.e) && v.e.length >= 4);
+  }
+  function cachedTrophies(id) {
+    var v = T.trophyCache && T.trophyCache[id];
+    return trophyValue(v) ? v : null;
+  }
+  function trophyNameKey(name) {
+    var key = typeof name === 'string' ? name.replace(/[\u2122\u00ae\u00a9]/g, '').replace(/\s+/g, ' ').trim().toLowerCase() : '';
+    /* Exact language pair confirmed by the console's Home/catalog/record
+       dumps. Keep this even when the mounted publisher metadata contains
+       only English. Platform and duplicate-set checks still apply. */
+    return key === '\u043f\u0440\u0430\u0433\u043c\u0430\u0442\u0430' ? 'pragmata' : key;
+  }
+  /* Metadata is attached to each Home request, never inferred from whichever
+     tile happens to be focused when an asynchronous answer arrives. */
+  function trophyGameNames(text) {
+    var games;
+    try { games = JSON.parse(text); } catch (e) { return; }
+    if (!Array.isArray(games)) return;
+    games.slice(0, 10000).forEach(function (g) {
+      if (!g || !/^[A-Z]{4}\d{5}$/.test(g.id)) return;
+      var names = (T.trophyNames = T.trophyNames || {})[g.id] || [];
+      var supplied = [g.name].concat(Array.isArray(g.names) ? g.names.slice(0, 64) : []);
+      supplied.forEach(function (name) {
+        if (typeof name === 'string' && name && name !== g.id && name.length <= 512 && names.indexOf(name) < 0 && names.length < 64)
+          names.push(name);
       });
+      T.trophyNames[g.id] = names;
+    });
+  }
+  /* Observe exports of loaded modules; never execute arbitrary factories to
+     guess a new firmware's module numbers. */
+  function trophyFetchExport(exp, legacy) {
+    var seen = [];
+    var visit = function (o, owner, key, depth) {
+      if (!o || depth > 3 || (typeof o !== 'object' && typeof o !== 'function') || seen.indexOf(o) >= 0) return null;
+      seen.push(o);
+      if (typeof o === 'function') {
+        var name = String(o.name || '');
+        if (key === 'fetchTrophyProgressData' || name === 'fetchTrophyProgressData' ||
+            (legacy && key === 'default'))
+          return { fn: o, owner: owner, label: key || name || 'module' };
+        return null;
+      }
+      try {
+        if (typeof o.fetchTrophyProgressData === 'function')
+          return { fn: o.fetchTrophyProgressData, owner: o, label: 'fetchTrophyProgressData' };
+      } catch (e) {}
+      var names;
+      try { names = Object.keys(o); } catch (e) { return null; }
+      for (var i = 0; i < names.length && i < 64; i++) {
+        var k = names[i], value;
+        try { value = o[k]; } catch (e) { continue; }
+        var found = visit(value, o, k, depth + 1);
+        if (found) return found;
+      }
+      return null;
+    };
+    if (legacy && typeof exp === 'function') return { fn: exp, owner: null, label: 'module' };
+    return visit(exp, null, '', 0);
+  }
+  function trophyErrorText(error) {
+    var parts = [], seen = [];
+    var visit = function (value, depth) {
+      if (value == null || depth > 3 || seen.indexOf(value) >= 0) return;
+      if (typeof value !== 'object' && typeof value !== 'function') {
+        var text = String(value).slice(0, 160);
+        if (parts.indexOf(text) < 0) parts.push(text);
+        return;
+      }
+      seen.push(value);
+      ['message', 'name', 'errorMessage', 'code', 'vshErrorHexCode', 'psnErrorCode', 'httpErrorCode'].forEach(function (key) {
+        try {
+          var item = value[key];
+          if (item != null && (typeof item === 'string' || typeof item === 'number')) visit(item, depth + 1);
+        } catch (e) {}
+      });
+      ['error', 'cause'].forEach(function (key) { try { visit(value[key], depth + 1); } catch (e) {} });
+    };
+    visit(error, 0);
+    return (parts.join(' | ') || 'unknown error').slice(0, 480);
+  }
+  /* The stock runWithAccessor chooses ONLINE whenever its capability check
+     succeeds. The widget only needs local records, including unsynced ones.
+     These API names, arguments and the 'offline' mode are verified in the
+     user's 13.20 HBC. Keep the accessor private to this request. */
+  function trophyOfflineFetcher(api, user, account) {
+    var methods = ['createAccessor', 'deleteAccessor', 'getPlayedTitleIdListByNpTitleId', 'getTitleConf', 'getTitleRecord'];
+    if (!api || !user) return null;
+    for (var k = 0; k < methods.length; k++) if (typeof api[methods[k]] !== 'function') return null;
+    var catalogCache;
+    return function (args) {
+      var accessor, opened = false, list, deadline = Date.now() + 2200;
+      var userId = args.userId === undefined ? user.launchedUser : args.userId;
+      var accountId = args.accountId === undefined ? 'me' : args.accountId;
+      var call = function (method, params, cleanup, owner) {
+        return new Promise(function (resolve, reject) {
+          if (!cleanup && Date.now() >= deadline) return reject(new Error(method + ': deadline'));
+          var settled = false;
+          var timer = setTimeout(function () {
+            settled = true;
+            reject(new Error(method + ': timeout'));
+          }, cleanup ? 250 : Math.max(1, Math.min(method === 'getInfo' ? 600 : 1200, deadline - Date.now())));
+          Promise.resolve().then(function () { return (owner || api)[method](params); }).then(function (result) {
+            if (settled) {
+              /* A timed-out create still owns a native handle if it completes
+                 late. Do not leave it allocated after the queue moved on. */
+              if (method === 'createAccessor' && result != null)
+                call('deleteAccessor', { accessorId: result }, true).catch(function (e) { log('trophies cleanup: ' + trophyErrorText(e)); });
+              if (method === 'getTitleConfList' && result && typeof result.close === 'function')
+                call('close', undefined, true, result).catch(function (e) { log('trophies cleanup: ' + trophyErrorText(e)); });
+              return;
+            }
+            settled = true;
+            clearTimeout(timer);
+            resolve(result);
+          }, function (error) {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            reject(new Error(method + ': ' + trophyErrorText(error)));
+          });
+        });
+      };
+      var closeList = function () {
+        var cursor = list;
+        list = null;
+        if (!cursor) return Promise.resolve();
+        return call('close', undefined, true, cursor).catch(function (e) { log('trophies cleanup: ' + trophyErrorText(e)); });
+      };
+      var release = function (value, error) {
+        var finish = function () { if (error) throw error; return value; };
+        return closeList().then(function () {
+          if (!opened) return finish();
+          opened = false;
+          return call('deleteAccessor', { accessorId: accessor }, true).then(finish, function (e) {
+            log('trophies cleanup: ' + trophyErrorText(e));
+            return finish();
+          });
+        });
+      };
+      var query = function (method) {
+        return call(method, { accessorId: accessor, npTitleId: args.npTitleId,
+                              accountId: accountId });
+      };
+      /* NPXS40025 functions 803/814 read a {read,close} cursor (not an
+         array returned by getTitleConfList). Records join on titleId.
+         Use its catalog if the NP-title index has no entry. Match a unique
+         full name AND platform; similar names or duplicate sets are unsafe. */
+      var catalog = function () {
+        var gameId = String(args.npTitleId || '').replace(/_00$/, '');
+        var names = ((T.trophyNames && T.trophyNames[gameId]) || []).map(trophyNameKey).filter(Boolean);
+        var platform = /^PPSA\d{5}$/.test(gameId) ? 'prospero' : /^CUSA\d{5}$/.test(gameId) ? 'ps4' : '';
+        if (!names.length || !platform || typeof api.getTitleConfList !== 'function')
+          throw new Error('local trophy title not found; catalog metadata unavailable');
+        var select = function (rows) {
+          var matches = [], seen = {};
+          rows.forEach(function (conf) {
+            if (!conf || typeof conf.titleId !== 'string' || seen[conf.titleId] ||
+                names.indexOf(trophyNameKey(conf.name)) < 0 || !Array.isArray(conf.platforms) ||
+                conf.platforms.indexOf(platform) < 0) return;
+            seen[conf.titleId] = true;
+            matches.push(conf);
+          });
+          if (matches.length !== 1) throw new Error('local trophy catalog: ' + matches.length + ' matches for ' + gameId);
+          log('trophies catalog ' + gameId + ': ' + matches[0].titleId + ' (' + platform + ')');
+          return [matches[0].titleId];
+        };
+        if (catalogCache && catalogCache.userId === userId && catalogCache.accountId === accountId &&
+            Date.now() - catalogCache.at < 20000) return select(catalogCache.rows);
+        return call('getTitleConfList', { accessorId: accessor, accountId: accountId }).then(function (cursor) {
+          if (cursor && typeof cursor.close === 'function') list = cursor;
+          if (!cursor || typeof cursor.read !== 'function' || typeof cursor.close !== 'function')
+            throw new Error('local trophy catalog: invalid cursor');
+          return call('read', 10000, false, cursor);
+        }).then(function (rows) {
+          if (!Array.isArray(rows) || rows.length >= 10000) throw new Error('local trophy catalog: incomplete list');
+          catalogCache = { userId: userId, accountId: accountId, at: Date.now(), rows: rows };
+          return closeList().then(function () { return select(rows); });
+        });
+      };
+      /* NPXS40025 functions 13614/14116 resolve Account.getInfo({userId})
+         and pass its decimal-string accountId into the offline reader.
+         The hub's stock 'me' default can address a different local record.
+         Never convert this 64-bit ID to a JavaScript number. */
+      var identity = Promise.resolve();
+      if (args.accountId === undefined && account && typeof account.getInfo === 'function') {
+        identity = call('getInfo', { userId: userId }, false, account).then(function (info) {
+          if (info && typeof info.accountId === 'string' && /^[0-9]{1,20}$/.test(info.accountId) && !/^0+$/.test(info.accountId)) {
+            accountId = info.accountId;
+            if (!T.done['native trophy account']) {
+              T.done['native trophy account'] = true;
+              log('trophies account: native ID resolved for user ' + userId);
+            }
+          }
+        }, function (e) { log('trophies account: ' + trophyErrorText(e) + '; using me fallback'); });
+      }
+      return identity.then(function () {
+        return call('createAccessor', { userId: userId, mode: 'offline' });
+      }).then(function (id) {
+        if (id == null) throw new Error('createAccessor: missing handle');
+        accessor = id;
+        opened = true;
+        return query('getPlayedTitleIdListByNpTitleId');
+      }).then(function (ids) {
+        if (Array.isArray(ids) && !ids.length && typeof api.getTitleIdListByNpTitleId === 'function')
+          return query('getTitleIdListByNpTitleId');
+        return ids;
+      }).then(function (ids) {
+        if (!Array.isArray(ids)) throw new Error('local trophy mapping: invalid reply');
+        return ids.length ? ids : catalog();
+      }).then(function (ids) {
+        var read = function (index) {
+          var id = ids[index], conf;
+          return call('getTitleConf', { accessorId: accessor, titleId: id }).then(function (v) {
+            conf = v;
+            return call('getTitleRecord', { accessorId: accessor, titleId: id,
+                         accountId: accountId });
+          }).then(function (record) {
+            if (!conf || !record) throw new Error('local trophy conf/record missing');
+            var names = ['Platinum', 'Gold', 'Silver', 'Bronze'], defined = {}, earned = {};
+            var hasCounts = false;
+            names.forEach(function (name) {
+              var n = record['numUnlocked' + name];
+              if (typeof n === 'number' && isFinite(n) && n >= 0) hasCounts = true;
+              earned[name.toLowerCase()] = n | 0;
+              defined[name.toLowerCase()] = conf['num' + name] | 0;
+            });
+            if (!hasCounts) throw new Error('local trophy record has no earned counts');
+            return { earnedTrophies: earned, definedTrophies: defined, progress: record.progress };
+          }).catch(function (error) {
+            if (index + 1 < ids.length && Date.now() < deadline) return read(index + 1);
+            throw error;
+          });
+        };
+        return read(0);
+      }).then(function (value) { return release(value, null); }, function (error) { return release(null, error); });
+    };
+  }
+  /* Verified in the user's 13.20 game-hub HBC (source hash
+     6281c2fc2085b197285788df14feb56ecdcccdfb): module 2577 has an
+     anonymous default export, so its function name is not discoverable.
+     Its service dependency 2578 exports fetchTitleData({npTitleId,
+     userId?, accountId?}). Its stock helper selects an accessor mode;
+     prefer our private offline reader for local, unsynced records. */
+  function trophyLocalExport(exp) {
+    try {
+      if (exp && typeof exp.fetchTitleData === 'function') {
+        try {
+          var native = T.require(210).TrophyAccessor;
+          var user = T.require(8).User;
+          var account;
+          try { account = T.require(1009).Account; } catch (e) {}
+          var offline = trophyOfflineFetcher(native, user, account);
+          if (offline) return { fn: offline, owner: null, label: 'TrophyAccessor (offline)' };
+        } catch (e) {}
+        return { fn: exp.fetchTitleData, owner: exp, label: 'fetchTitleData' };
+      }
+    } catch (e) {}
+    return null;
+  }
+  function observeTrophyFetch(exp, id) {
+    if (APP !== 'hub' || !THEME.fakeTrophies || T.trophyFetcher) return;
+    var found = trophyFetchExport(exp, false) || (String(id) === '2578' ? trophyLocalExport(exp) : null);
+    if (!found) return;
+    T.trophyFetcher = found;
+    log('trophies fetch provider: module ' + id + ' / ' + found.label);
+    var waiting = Object.keys(T.trophyFetchWait || {});
+    T.trophyFetchWait = {};
+    if (waiting.length) setTimeout(function () {
+      if (typeof globalThis.__themeTrophyAsk === 'function')
+        globalThis.__themeTrophyAsk(waiting.join(','));
+      else {
+        var tid = hubTitleId();
+        if (tid) fetchTrophies(tid);
+      }
+    }, 0);
+  }
+  function trophyFetcher() {
+    if (T.trophyFetcher) return T.trophyFetcher;
+    if (!T.require) return null;
+    /* The webpack cache contains already executed modules only. */
+    var cache = T.require.c || {}, now = Date.now();
+    if (!T.trophyFetchScan || now - T.trophyFetchScan >= 2000) {
+      T.trophyFetchScan = now;
+      for (var id in cache) {
+        try { observeTrophyFetch(cache[id] && cache[id].exports, id); } catch (e) {}
+        if (T.trophyFetcher) return T.trophyFetcher;
+      }
+    }
+    /* A single service module identified from the actual 13.20 dump.
+       Require its named API, never invoke an anonymous default from a
+       guessed factory. This also works when the hub's cards never mount. */
+    if (!T.trophyLocalChecked) {
+      T.trophyLocalChecked = true;
+      try {
+        var local = T.require(2578);
+        if (T.trophyFetcher) return T.trophyFetcher;
+        /* observe also wakes requests queued before the service loaded */
+        observeTrophyFetch(local, 2578);
+        if (T.trophyFetcher) return T.trophyFetcher;
+      } catch (e) {}
+    }
+    /* Compatibility with the verified 9.60 default export in 2559. */
+    if (!T.trophyLegacyChecked) {
+      T.trophyLegacyChecked = true;
+      try {
+        var mod = T.require(2559);
+        var found = trophyFetchExport(mod, false) || trophyFetchExport(mod, true);
+        if (found) {
+          T.trophyFetcher = found;
+          log('trophies fetch provider: module 2559 / ' + found.label);
+          return found;
+        }
+        log('trophies fetch: 2559 has no provider; waiting for fetchTrophyProgressData (exports: ' +
+            (mod && typeof mod === 'object' ? Object.keys(mod).join(',').slice(0, 180) : typeof mod) + ')');
+      } catch (e) { log('trophies fetch: legacy module unavailable; waiting for a loaded provider'); }
+    }
+    return null;
+  }
+  function waitForTrophyFetcher(id) {
+    (T.trophyFetchWait = T.trophyFetchWait || {})[id] = true;
+  }
+  var NP_SUFFIXES = ['_00', ''];
+  var TROPHY_FETCH_TIMEOUT = 3000;
+  /* The native service can leave a promise pending (for example while
+     offline). Share a request per title, bound each attempt, and always
+     release its queue slot. Late replies belong to the expired attempt. */
+  function requestTrophies(titleId, after) {
+    var cached = cachedTrophies(titleId);
+    if (cached) { if (after) after(cached); return; }
+    if (!titleId) { if (after) after(null); return; }
+    var pending = T.trophyPending = T.trophyPending || {};
+    if (pending[titleId]) { if (after) pending[titleId].push(after); return; }
+    var provider = trophyFetcher();
+    if (!provider) {
+      waitForTrophyFetcher(titleId);
+      var waiting = 'trophies waiting for provider ' + titleId;
+      if (!T.done[waiting]) { T.done[waiting] = true; log(waiting); }
+      if (after) after(null);
+      return;
+    }
+    var listeners = pending[titleId] = after ? [after] : [];
+    var finished = false, i = 0;
+    var finish = function (msg) {
+      if (finished) return;
+      finished = true;
+      delete pending[titleId];
+      if (msg) (T.trophyCache = T.trophyCache || {})[titleId] = msg;
+      listeners.forEach(function (f) {
+        try { f(msg); } catch (e) { log('trophies callback ' + titleId + ': ' + e); }
+      });
+    };
+    var next = function () {
+      if (finished) return;
+      if (i >= NP_SUFFIXES.length) return finish(null);
+      var np = titleId + NP_SUFFIXES[i++], settled = false;
+      var report = function (reason) {
+        var key = 'trophies fetch ' + np + ': ' + reason;
+        if (!T.done[key]) { T.done[key] = true; log(key); }
+      };
+      var fail = function (reason) {
+        if (settled || finished) return;
+        settled = true;
+        clearTimeout(timer);
+        report(reason);
+        next();
+      };
+      var receive = function (r) {
+        if (settled || finished) return;
+        var t;
+        try { t = findTrophies(r, 0); } catch (e) { return fail('bad reply: ' + e); }
+        if (!t) {
+          var keys = r && typeof r === 'object' ? Object.keys(r).slice(0, 16).join(',') : String(r);
+          return fail('no trophy data (' + keys + ')');
+        }
+        var msg;
+        try {
+          msg = { id: titleId, e: grades(t.earnedTrophies), d: grades(t.definedTrophies),
+                  p: typeof t.progress === 'number' ? t.progress : null };
+        } catch (e) { return fail('bad trophy counts: ' + e); }
+        settled = true;
+        clearTimeout(timer);
+        report('found');
+        finish(msg);
+      };
+      var timer = setTimeout(function () { fail('timeout after ' + TROPHY_FETCH_TIMEOUT + ' ms'); },
+                             TROPHY_FETCH_TIMEOUT);
+      try {
+        var p = provider.fn.call(provider.owner, { npTitleId: np });
+        if (p && typeof p.then === 'function') p.then(receive, function (err) {
+          fail('failed: ' + trophyErrorText(err));
+        });
+        else receive(p);
+      } catch (e) { fail('failed: ' + String(e).slice(0, 160)); }
     };
     next();
   }
-  /* a game of an open folder on the Home: its trophies are asked here
-     (ZhiThemes hands "THEME-TROPHY-ASK <id>" over when the hub prints
-     "THEME-HUBASK"); the answer goes to the Home like the hub's own */
+  function fetchTrophies(titleId) {
+    if (!titleId) return;
+    requestTrophies(titleId, function (msg) {
+      if (!msg || hubTitleId() !== titleId || fromLibrary()) return;
+      T.trophyGotFor = titleId;
+      sendTrophyData(msg);
+      if (!T.done['trophies by fetch']) done('trophies by fetch (' + titleId + ')');
+    });
+  }
+  /* Requests from the Home also work while another hub page is visible. */
   function trophiesFor(titleId, after) {
-    var end = function () { if (after) { var a = after; after = null; a(); } };
-    if (!titleId || !T.require) return end();
-    var mod;
-    try { mod = T.require(2559); } catch (e) { log('trophies for ' + titleId + ': ' + e); return end(); }
-    var fn = mod && (mod.default || mod);
-    if (typeof fn !== 'function') return end();
-    var i = 0;
-    var next = function () {
-      if (i >= NP_SUFFIXES.length) return end();
-      var np = titleId + NP_SUFFIXES[i++], p;
-      try { p = fn({ npTitleId: np }); } catch (e) { next(); return; }
-      if (!p || typeof p.then !== 'function') return end();
-      p.then(function (r) {
-        var t = findTrophies(r, 0);
-        if (!t) { next(); return; }
-        end();
-        log('trophies asked by the Home: ' + titleId);
-        sendTrophyData({ id: titleId, e: grades(t.earnedTrophies), d: grades(t.definedTrophies),
-                         p: typeof t.progress === 'number' ? t.progress : null });
-      }, function () { next(); });
-    };
-    next();
+    requestTrophies(titleId, function (msg) {
+      try {
+        if (msg) {
+          log('trophies asked by the Home: ' + titleId);
+          sendTrophyData(msg);
+        }
+      } finally { if (after) after(); }
+    });
   }
   if (APP === 'hub' && THEME.fakeTrophies && THEME.fakeTrophiesFast !== false) {
-    var trophyQueue = [], trophyBusy = false;
+    var trophyQueue = [], trophyBusy = '';
     var trophyNext = function () {
       if (trophyBusy || !trophyQueue.length) return;
-      trophyBusy = true;
-      trophiesFor(trophyQueue.shift(), function () { trophyBusy = false; trophyNext(); });
+      var id = trophyQueue.shift();
+      trophyBusy = id;
+      trophiesFor(id, function () { trophyBusy = ''; trophyNext(); });
     };
-    globalThis.__themeTrophyAsk = function (ids) {
+    globalThis.__themeTrophyAsk = function (ids, games, files) {
+      if (games || files) T.trophyNames = {};
+      if (games) trophyGameNames(games);
+      if (files) trophyGameNames(files);
+      var wanted = [];
       String(ids || '').split(',').forEach(function (id) {
         id = id.trim();
-        if (id && trophyQueue.indexOf(id) < 0) trophyQueue.push(id);
+        if (/^[A-Z]{4}\d{5}$/.test(id) && id !== trophyBusy && wanted.indexOf(id) < 0) wanted.push(id);
       });
+      /* A newly focused game goes ahead of old prefetch requests. */
+      trophyQueue = wanted.concat(trophyQueue.filter(function (id) { return wanted.indexOf(id) < 0; }));
       trophyNext();
     };
     setInterval(function () { try { console.log('THEME-HUBASK ' + (globalThis.__ztHubId || '')); } catch (e) {} }, 150);
@@ -11040,11 +11415,14 @@
   function trophiesForFocused() {
     var id = T.focusedId;
     if (!id) return;
-    var c = T.trophyCache && T.trophyCache[id];
+    var c = cachedTrophies(id);
     if (c) {
       if (T.trophies !== c) {
         T.trophies = c;
-        setTimeout(function () { trophyListeners.forEach(function (f) { try { f(c); } catch (e) {} }); }, 0);
+        setTimeout(function () {
+          if (T.trophies !== c || T.focusedId !== id) return;
+          trophyListeners.forEach(function (f) { try { f(c); } catch (e) {} });
+        }, 0);
       }
       return;
     }
@@ -11053,7 +11431,7 @@
   function askTrophies(ids) {
     var now = Date.now();
     ids = ids.filter(function (id) {
-      if (!id || (T.trophyCache && T.trophyCache[id]) || now - (trophyAsked[id] || 0) < 20000) return false;
+      if (!id || cachedTrophies(id) || now - (trophyAsked[id] || 0) < 20000) return false;
       trophyAsked[id] = now;
       return true;
     });
@@ -11440,6 +11818,7 @@
       /* some modules export text or numbers: 'in' only works on objects */
       if (!exp || (typeof exp !== 'object' && typeof exp !== 'function'))
         return;
+      observeTrophyFetch(exp, id);
       /* ZhiThemes off: the Home stays stock, only Options > ZhiThemes */
       if (STOCK) {
         findReact(exp);
