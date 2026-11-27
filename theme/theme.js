@@ -5532,10 +5532,29 @@
      getDefaultFallbackId(space, experiences) (module ~75797) gives
      experiences[1] for a space other than 'game' with more than 2 tiles (the
      one after the Store); an older version's strand.focus(0) came too early to change it.
-     For our spaces it gives the first tile of that space. */
+     For our spaces it gives the first tile of that space.
+     The stock tabs had the same: the Home skips the tile it pins at the front
+     (All apps, NPXS40056, on Media; the Store, PS Plus or Welcome on Games,
+     where Welcome is also the default tile). With those hidden (by the theme,
+     or off the row), the focus landed on the 2nd tile. There it gives the
+     first tile shown; with a front tile first, the Home's own choice stays. */
+  var FRONT_TILES = { media: { NPXS40056: true }, game: { NPXS40047: true, NPXS40037: true, NPXS40063: true } };
+  var firstTileLogs = 0;
+  /* a stock tab's first tile shown; null when that is one the Home pins at
+     the front (the row the Home expects) or there is none */
+  function stockFirstTile(space, list) {
+    var front = FRONT_TILES[space], hidden = removedIds();
+    if (!front) return null;
+    for (var i = 0; i < list.length; i++) {
+      var e = list[i];
+      if (!e || e.id == null || (e.spaceId != null && e.spaceId !== space) || hidden[e.id]) continue;
+      return front[e.id] ? null : e.id;
+    }
+    return null;
+  }
   function hookDefaultTile(exp) {
     var fb = exp && exp.getDefaultFallbackId;
-    if (APP !== 'home' || !extraTabs().length || typeof fb !== 'function' ||
+    if (APP !== 'home' || typeof fb !== 'function' ||
         typeof exp.getDefaultSelectedId !== 'function' || fb.__theme) return;
     var wrapped = function (space, list) {
       if (isExtraSpace(space) && Array.isArray(list)) {
@@ -5547,7 +5566,18 @@
           }
         }
       }
-      return fb.apply(this, arguments);
+      var r = fb.apply(this, arguments);
+      if (Array.isArray(list)) {
+        try {
+          var m = stockFirstTile(space, list);
+          if (m != null && m !== r) {
+            done('first tile ' + space);
+            if (firstTileLogs++ < 6) log('first tile ' + space + ': ' + r + ' -> ' + m);
+            return m;
+          }
+        } catch (e) { log('first tile error: ' + e); }
+      }
+      return r;
     };
     wrapped.__theme = true;
     if (replace(exp, 'getDefaultFallbackId', wrapped)) done('tabs: default tile');
@@ -8637,11 +8667,17 @@
       });
     }, 0);
   }
-  var tabFirstLogs = 0;
+  var tabFirstLogs = 0, selTraceLogs = 0;
+  /* the tab of a row: its tiles' spaceId */
+  function rowSpace(list) {
+    if (!Array.isArray(list)) return null;
+    for (var i = 0; i < list.length; i++)
+      if (list[i] && typeof list[i].spaceId === 'string') return list[i].spaceId;
+    return null;
+  }
+  /* installed with every theme: the stock tabs' first tile needs it too */
   function hookSelected(exp) {
-    if (!(THEME.hideStore || THEME.hideAllApps || THEME.hideGallery || THEME.hideTiles || THEME.folders ||
-          extraTabs().length) || APP !== 'home' ||
-        typeof exp.findSelectedExperienceId !== 'function' ||
+    if (APP !== 'home' || typeof exp.findSelectedExperienceId !== 'function' ||
         exp.findSelectedExperienceId.__theme)
       return;
     var original = exp.findSelectedExperienceId;
@@ -8674,6 +8710,23 @@
           var r = original.call(this, p);
           var fr = folderOfGame(r);
           if (fr && listHas(o.experiences, fr)) r = fr;
+          /* a stock tab opened with no tile of its own selected (the Home's
+             default id is not in the row) starts on its first tile, unless
+             that is the one the Home pins at the front */
+          if (selTraceLogs < 24 && !isTabRow(o.experiences)) {
+            selTraceLogs++;
+            log('select ' + rowSpace(o.experiences) + ': ' + o.selectedExperienceId + ' (fallback ' + o.fallbackId +
+                ') -> ' + r + ' [' + (Array.isArray(o.experiences) ? o.experiences.slice(0, 4).map(function (e) {
+                  return e && e.id; }).join(',') : '?') + ']', 'D');
+          }
+          if (!isTabRow(o.experiences) && !listHas(o.experiences, o.selectedExperienceId)) {
+            var space = rowSpace(o.experiences), m = space ? stockFirstTile(space, o.experiences) : null;
+            if (m != null && m !== r) {
+              done('first tile ' + space);
+              if (firstTileLogs++ < 6) log('first tile ' + space + ': ' + o.selectedExperienceId + ' -> ' + r + ' -> ' + m);
+              return m;
+            }
+          }
           if (r !== o.selectedExperienceId) {
             var ids5 = function (l) {
               return Array.isArray(l) ? l.slice(0, 5).map(function (e) { return e && e.id; }).join(',') : String(l);

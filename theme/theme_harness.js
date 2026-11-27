@@ -166,6 +166,15 @@ const modules = {
   146: function (module, exports, req) {
     exports.headerShift = req(100).SYSTEM_HEIGHT + req(24).VERTICAL_HEIGHT_CHANGE;
   },
+  // the Home's default tile (module ~75797): a tab with more than 2 tiles
+  // starts on its 2nd, the one after the tile pinned at the front
+  75797: function (module, exports) {
+    exports.getDefaultFallbackId = (space, list) => (list.length > 2 ? list[1] : list[0]).id;
+    exports.getDefaultSelectedId = (space, list) => exports.getDefaultFallbackId(space, list);
+    // the selected tile when it is still in the row, else the fallback
+    exports.findSelectedExperienceId = (o) =>
+      o.experiences.some((e) => e.id === o.selectedExperienceId) ? o.selectedExperienceId : o.fallbackId;
+  },
   // entry: hub render (marginTop = SCALED - VERTICAL_HEIGHT_CHANGE)
   0: function (module, exports, req) {
     const j = req(2), c = req(24);
@@ -299,6 +308,29 @@ const modules = {
     [false, true, true, false].forEach((f) => req(2).jsx('HubPage', { hubUrl: 'pshome:gamehub?titleId=A1', focusLayerName: 'hub', isHubFocused: f }));
     exports.hubFocus = logs.filter((l) => /^THEME-HUBFOCUS/.test(l));
     exports.hubSections = ['uam-card', 'post-news-section', 'my-thing'].map((id) => req(2).jsx('View', { testID: id }) ? 'drawn' : 'hidden');
+    // a stock tab's first tile: with the tile pinned at the front first, the
+    // Home's choice; without it the first tile, not the 2nd
+    const dt = req(75797), tiles = (space, ...ids) => ids.map((id) => ({ id, spaceId: space }));
+    exports.firstTile = [
+      dt.getDefaultFallbackId('media', tiles('media', 'NPXS40056', 'M1', 'M2')),
+      dt.getDefaultFallbackId('media', tiles('media', 'M1', 'M2', 'M3')),
+      dt.getDefaultFallbackId('media', tiles('media', 'NPXS40075', 'M1', 'M2')),
+      dt.getDefaultFallbackId('game', tiles('game', 'NPXS40047', 'G1', 'G2')),
+      dt.getDefaultFallbackId('game', tiles('game', 'NPXS40037', 'G1', 'G2')),
+      dt.getDefaultFallbackId('game', tiles('game', 'G1', 'G2', 'G3'))];
+    // the tab opened: the Home's default id (Welcome) is not in the row and the fallback is the 2nd tile
+    const open = (space, selected, ...ids) => {
+      const list = tiles(space, ...ids);
+      return dt.findSelectedExperienceId({ selectedExperienceId: selected, experiences: list, prevExperiences: [],
+                                           fallbackId: list[1].id });
+    };
+    exports.firstSelected = [
+      open('media', 'NPXS40063', 'M1', 'M2', 'M3'),
+      open('media', 'NPXS40063', 'NPXS40056', 'M1', 'M2'),
+      open('media', 'M2', 'M1', 'M2', 'M3'),
+      open('game', 'NPXS40063', 'G1', 'G2', 'G3'),
+      open('game', 'NPXS40063', 'NPXS40047', 'G1', 'G2'),
+      open('game', 'NPXS40063', 'NPXS40063', 'G1', 'G2')];
     // new: row spring, icon size, trophies, no clip
     exports.spring = req(1).Animated.spring(null, { stiffness: 256, damping: 21, mass: 0.1, overshootClamping: true });
     exports.iconSize = [req(100).SYSTEM_ICON_SIZE, req(100).SYSTEM_ICON_SIZE_NO_GLANCE];
@@ -358,6 +390,8 @@ const out = {
   edgeFade: entry.edgeFade,
   gameName: entry.gameName, gameNameAfterFocus: entry.gameNameAfterFocus, hubFocus: entry.hubFocus, hubSections: entry.hubSections,
   spring: entry.spring, iconSize: entry.iconSize, trophy: entry.trophy, scroll: entry.scroll,
+  firstTile: entry.firstTile,
+  firstSelected: entry.firstSelected,
   hubMarginTop: entry.hub.props.marginTop,
   headerShift: entry.shift,
   callRestored: Function.prototype.call.toString().includes('native code'),
